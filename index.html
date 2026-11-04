@@ -13,13 +13,13 @@ button{font:inherit;padding:10px 14px;border:1px solid var(--b);border-radius:10
 button.main{background:var(--p);color:#fff;border:0;width:100%;margin-top:6px}
 button.x{color:var(--r)}
 .row{display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--c);border:1px solid var(--b);border-radius:12px;padding:10px 12px;margin:7px 0}
-.bt{display:flex;gap:6px}
+.bt{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 .card{background:var(--c);border:1px solid var(--b);border-radius:12px;padding:10px;margin:8px 0}
 small,.m{color:var(--m)}
 .w{background:#fff3cd;color:#664d03;padding:10px;border-radius:10px;margin:8px 0}
 #bar{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:6px 0}
 #nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--c);border-top:1px solid var(--b);padding:6px 6px calc(6px + env(safe-area-inset-bottom))}
-#nav button{flex:1;border:0;background:none;padding:10px 2px;font-size:14px}
+#nav button{flex:1;border:0;background:none;padding:10px 2px;font-size:12px}
 #nav .on{color:var(--p);font-weight:700}
 #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:96px;background:#222;color:#fff;padding:10px 16px;border-radius:20px;display:none;z-index:9}
 .big{font-size:22px;font-weight:700}.neg{color:var(--r)}
@@ -41,6 +41,15 @@ small,.m{color:var(--m)}
 import {initializeApp} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
 import {getAuth,signInWithEmailAndPassword,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
 import {initializeFirestore,persistentLocalCache,doc,getDoc,collection,addDoc,updateDoc,deleteDoc,onSnapshot,query,where,writeBatch,increment,serverTimestamp} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
+// >>> METS ICI TON NUMÉRO Orange Money / MTN MoMo (affiché quand l'abonnement est terminé)
+const PAY='VOTRE NUMÉRO';
+const PM=['Espèces','Orange Money','MTN MoMo'],CAT0='Achat de marchandise',
+E=['Salaire','Loyer','Électricité','Transport'],
+T={boutique:{n:'Boutique',p:['Riz','Sucre','Huile','Lait','Savon']},
+boulangerie:{n:'Boulangerie',e:['Salaire','Farine','Levure','Électricité','Bois ou gaz'],p:['Pain','Baguette','Croissant','Gâteau']},
+pharmacie:{n:'Pharmacie',p:['Paracétamol','Amoxicilline','Sirop','Pansements']},
+quincaillerie:{n:'Quincaillerie',p:['Ciment','Fer à béton','Peinture','Clous','Câble']},
+restaurant:{n:'Restaurant',e:['Salaire','Gaz ou charbon','Électricité','Loyer'],p:['Riz sauce','Poulet braisé','Poisson','Boisson','Jus']}};
 const app=initializeApp({apiKey:"AIzaSyDFS_aJPHmarHVL8UiHwn39njO34Kk7k1w",authDomain:"ma-boutique-e1fe3.firebaseapp.com",projectId:"ma-boutique-e1fe3",storageBucket:"ma-boutique-e1fe3.firebasestorage.app",messagingSenderId:"66591651573",appId:"1:66591651573:web:572780596e446d3c6c37bc"});
 const auth=getAuth(app),db=initializeFirestore(app,{localCache:persistentLocalCache()});
 const $=s=>document.querySelector(s),F=n=>Number(n||0).toLocaleString('fr-FR')+' GNF',
@@ -48,65 +57,100 @@ esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&
 today=()=>new Date().toLocaleDateString('sv'),sum=(a,k)=>a.reduce((t,x)=>t+(+x[k]||0),0),
 c=n=>collection(db,'shops',S.shop,n),
 store={get:k=>{try{return localStorage.getItem(k)}catch(e){}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}},
-S={tab:'',month:today().slice(0,7),products:[],sales:[],exp:[],debts:[],u:[]};
+S={tab:'',month:today().slice(0,7),products:[],sales:[],exp:[],debts:[],u:[],pay:'Espèces',type:'boutique'};
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+addEventListener('online',()=>draw());addEventListener('offline',()=>draw());
 function toast(t){const e=$('#toast');e.textContent=t;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',2600)}
 const go=p=>p.catch(e=>toast('Refusé : '+(e.code||e.message))),
-ok=()=>S.rw||(toast('Abonnement terminé : lecture seule'),false);
+ok=()=>S.rw||(toast('Abonnement terminé : lecture seule'),false),
+wa=t=>open('https://wa.me/?text='+encodeURIComponent(t)),
+clr=()=>document.querySelectorAll('#main .card input').forEach(i=>{i.value='';i.blur()});
 function show(v){$('#login').style.display=v=='login'?'block':'none';$('#app').style.display=v=='app'?'block':'none';$('#nav').style.display=v=='app'?'flex':'none'}
 $('#code').value=store.get('code')||'';
 $('#lf').onsubmit=async e=>{e.preventDefault();$('#err').textContent='';store.set('code',$('#code').value.trim());
- try{await signInWithEmailAndPassword(auth,$('#em').value.trim(),$('#pw').value)}catch(x){$('#err').textContent='E-mail ou mot de passe incorrect'}};
+ try{await signInWithEmailAndPassword(auth,$('#em').value.trim(),$('#pw').value)}catch(x){$('#err').textContent=navigator.onLine?'E-mail ou mot de passe incorrect':'Pas de connexion internet'}};
 onAuthStateChanged(auth,u=>u?start(u):(S.role=null,show('login')));
 async function start(u){const code=store.get('code');
  try{const m=await getDoc(doc(db,'shops',code,'members',u.uid));if(!m.exists())throw 0;
   const sh=await getDoc(doc(db,'shops',code));S.shop=code;S.role=m.data().role;S.info=sh.data();
+  S.type=T[S.info.type]?S.info.type:(T[store.get('type_'+code)]?store.get('type_'+code):'boutique');
   S.rw=!S.info.blocked&&S.info.accessUntil?.toMillis()>Date.now();
   S.tab=S.role=='comptable'?'bilan':'vendre';listen();show('app')
- }catch(x){$('#err').textContent='Code de boutique ou compte incorrect';signOut(auth)}}
+ }catch(x){if(x===0||x?.code=='permission-denied'){$('#err').textContent='Code de boutique ou compte incorrect';signOut(auth)}
+  else{$('#err').textContent='Pas de connexion : connectez-vous une première fois avec internet';show('login')}}}
 function listen(){S.u.forEach(f=>f());S.u=[];const r=S.role,mq=n=>query(c(n),where('month','==',S.month)),
  L=(q,k)=>S.u.push(onSnapshot(q,s=>{S[k]=s.docs.map(d=>({id:d.id,...d.data()}));draw()},()=>toast('Lecture refusée')));
  L(mq('sales'),'sales');
  if(r!='comptable'){L(c('products'),'products');L(c('debts'),'debts')}
  if(r!='vendeur')L(mq('expenses'),'exp');draw()}
-const TABS={patron:[['vendre','Vendre'],['produits','Produits'],['depenses','Dépenses'],['dettes','Dettes'],['bilan','Bilan']],vendeur:[['vendre','Vendre'],['produits','Stock'],['dettes','Dettes']],comptable:[['bilan','Bilan']]};
+const TABS={patron:[['vendre','Vendre'],['produits','Produits'],['achats','Achats'],['depenses','Dépenses'],['dettes','Dettes'],['bilan','Bilan']],vendeur:[['vendre','Vendre'],['produits','Stock'],['dettes','Dettes']],comptable:[['bilan','Bilan']]};
 function draw(){if(!S.role)return;if(document.activeElement?.matches('#main input,#main select'))return;
  const ms=S.info.accessUntil?.toMillis()||0,exp=new Date(ms).toLocaleDateString('fr-FR'),left=Math.ceil((ms-Date.now())/864e5);
- $('#bar').innerHTML=`<b>${esc(S.info.name||'Ma Boutique')}</b><small>${S.role}</small><button data-a="out">Sortir</button>`;
- $('#ban').innerHTML=S.rw?(left<=7?`<div class="w">Votre abonnement se termine le ${exp}. Pensez à le renouveler.</div>`:''):`<div class="w">Abonnement terminé (${exp}). Lecture seule : contactez votre fournisseur pour réactiver.</div>`;
+ $('#bar').innerHTML=`<b>${esc(S.info.name||'Ma Boutique')}</b><small>${S.role}</small>${navigator.onLine?'':'<small class="neg">Hors ligne</small>'}<button data-a="out">Sortir</button>`;
+ $('#ban').innerHTML=S.rw?(left<=7?`<div class="w">Votre abonnement se termine le ${exp}. Pensez à le renouveler.</div>`:''):`<div class="w">Abonnement terminé (${exp}). Lecture seule. Pour réactiver, payez par Orange Money ou MTN MoMo au <b>${esc(PAY)}</b>, puis envoyez la preuve de paiement.</div>`;
  $('#nav').innerHTML=TABS[S.role].map(([k,l])=>`<button class="${k==S.tab?'on':''}" data-a="tab" data-k="${k}">${l}</button>`).join('');
  $('#main').innerHTML=V[S.tab]()}
-const pr=p=>`<div><b>${esc(p.name)}</b><br><small>${F(p.price)} · stock ${p.stock}</small></div>`,
+const low=p=>p.stock<=(p.min??5),
+pr=p=>`<div><b>${esc(p.name)}</b><br><small>${F(p.price)}${p.pack>1?` · carton ${F(p.packPrice)} (${p.pack})`:''} · <span class="${low(p)?'neg':''}">stock ${p.stock}</span>${S.role=='patron'&&p.cost?` · achat ${F(p.cost)}`:''}</small></div>`,
+alerte=()=>{const l=S.products.filter(low);return l.length?`<div class="w">Stock bas : ${l.map(p=>esc(p.name)+' ('+p.stock+')').join(', ')}${S.role=='patron'?'<br><button data-a="reap">Liste à racheter (WhatsApp)</button>':''}</div>`:''},
+rowD=d=>{const r=d.amount-d.paid;return `<div class="row"><div><b>${esc(d.name)}</b><br><small>${r>0?'Reste '+F(r):'Soldé'}</small></div><div class="bt">${r>0?`<button data-a="payd" data-id="${d.id}">Payé</button>`:''}<button class="x" data-a="deld" data-id="${d.id}">✕</button></div></div>`},
 V={
 vendre:()=>{const ts=S.sales.filter(s=>s.day==today());
- return `<h3>Aujourd’hui : ${F(sum(ts,'total'))}</h3>`+(S.products.map(p=>`<div class="row">${pr(p)}<div class="bt"><button data-a="sell" data-id="${p.id}" data-n="1">+1</button><button data-a="sell" data-id="${p.id}" data-n="5">+5</button><button data-a="sell" data-id="${p.id}" data-n="0">…</button></div></div>`).join('')||'<p class="m">Aucun produit. Le patron doit en ajouter.</p>')
- +'<h4>Ventes du jour</h4>'+ts.sort((a,b)=>(b.ts?.seconds||9e9)-(a.ts?.seconds||9e9)).map(s=>`<div class="row"><span>${s.qty} × ${esc(s.name)}</span><span>${F(s.total)}${S.role=='patron'?` <button class="x" data-a="delsale" data-id="${s.id}">✕</button>`:''}</span></div>`).join('')},
-produits:()=>(S.role=='patron'?`<div class="card"><input id="pn" placeholder="Nom du produit"><input id="pp" type="number" inputmode="numeric" placeholder="Prix de vente (GNF)"><input id="ps" type="number" inputmode="numeric" placeholder="Stock de départ"><button class="main" data-a="addp">Ajouter</button></div>`:'')
- +S.products.map(p=>`<div class="row">${pr(p)}${S.role=='patron'?`<div class="bt"><button data-a="stk" data-id="${p.id}">Stock</button><button data-a="prx" data-id="${p.id}">Prix</button><button class="x" data-a="delp" data-id="${p.id}">✕</button></div>`:''}</div>`).join(''),
-depenses:()=>`<div class="card"><input id="el" placeholder="Libellé (ex : salaire de Fanta)"><input id="ea" type="number" inputmode="numeric" placeholder="Montant (GNF)"><select id="ec">${['Salaire','Loyer','Électricité','Transport','Achat de marchandise','Autre'].map(x=>`<option>${x}</option>`).join('')}</select><button class="main" data-a="adde">Enregistrer</button></div><h4>Total du mois : ${F(sum(S.exp,'amount'))}</h4>`
+ return `<h3>Aujourd’hui : ${F(sum(ts,'total'))}</h3>${alerte()}<small>Payé en :</small><select id="pm">${PM.map(x=>`<option${x==S.pay?' selected':''}>${x}</option>`).join('')}</select>`+(S.products.map(p=>`<div class="row">${pr(p)}<div class="bt"><button data-a="sell" data-id="${p.id}" data-n="1">+1</button><button data-a="sell" data-id="${p.id}" data-n="5">+5</button><button data-a="sell" data-id="${p.id}" data-n="0">…</button>${p.pack>1?`<button data-a="sellc" data-id="${p.id}">Carton</button>`:''}</div></div>`).join('')||'<p class="m">Aucun produit. Le patron doit en ajouter.</p>')
+ +'<h4>Ventes du jour</h4>'+ts.sort((a,b)=>(b.ts?.seconds||9e9)-(a.ts?.seconds||9e9)).map(s=>`<div class="row"><span>${s.qty} × ${esc(s.name)}<br><small>${esc(s.pay||'Espèces')}</small></span><span>${F(s.total)} <button data-a="rec" data-id="${s.id}">Reçu</button>${S.role=='patron'?` <button class="x" data-a="delsale" data-id="${s.id}">✕</button>`:''}</span></div>`).join('')},
+produits:()=>alerte()+(S.role=='patron'?`<div class="card"><small>Type de commerce :</small><select id="ty">${Object.entries(T).map(([k,t])=>`<option value="${k}"${k==S.type?' selected':''}>${t.n}</option>`).join('')}</select><small>Suggestions (touchez pour remplir le nom) :</small><div class="bt" style="justify-content:flex-start;margin:6px 0">${T[S.type].p.map(x=>`<button data-a="sug" data-n="${esc(x)}">${esc(x)}</button>`).join('')}</div><input id="pn" placeholder="Nom du produit"><input id="pc" type="number" inputmode="numeric" placeholder="Prix d’achat par pièce (GNF)"><input id="pp" type="number" inputmode="numeric" placeholder="Prix de vente par pièce (GNF)"><input id="ps" type="number" inputmode="numeric" placeholder="Stock de départ (en pièces)"><input id="pk" type="number" inputmode="numeric" placeholder="Pièces par carton (facultatif)"><input id="pq" type="number" inputmode="numeric" placeholder="Prix de vente du carton (facultatif)"><button class="main" data-a="addp">Ajouter</button></div>`:'')
+ +S.products.map(p=>`<div class="row">${pr(p)}${S.role=='patron'?`<div class="bt"><button data-a="stk" data-id="${p.id}">Stock</button><button data-a="prx" data-id="${p.id}">Modifier</button><button class="x" data-a="delp" data-id="${p.id}">✕</button></div>`:''}</div>`).join(''),
+achats:()=>{const fo=S.debts.filter(d=>d.kind=='supplier');return `<div class="card"><b>Fournisseurs : achat à crédit</b><input id="fn" placeholder="Nom du fournisseur"><input id="fa" type="number" inputmode="numeric" placeholder="Montant à payer (GNF)"><button class="main" data-a="addf">Ajouter</button></div><h4>Total à payer aux fournisseurs : ${F(fo.reduce((t,d)=>t+d.amount-d.paid,0))}</h4>`+(fo.map(rowD).join('')||'<p class="m">Aucune dette fournisseur.</p>')},
+depenses:()=>`<div class="card"><input id="el" placeholder="Libellé (ex : salaire de Fanta)"><input id="ea" type="number" inputmode="numeric" placeholder="Montant (GNF)"><select id="ec">${[...(T[S.type].e||E),CAT0,'Autre'].map(x=>`<option>${x}</option>`).join('')}</select><button class="main" data-a="adde">Enregistrer</button></div><h4>Total du mois : ${F(sum(S.exp,'amount'))}</h4>`
  +S.exp.sort((a,b)=>b.day>a.day?1:-1).map(e=>`<div class="row"><div><b>${esc(e.label)}</b><br><small>${esc(e.cat)} · ${e.day}</small></div><div>${F(e.amount)} <button class="x" data-a="dele" data-id="${e.id}">✕</button></div></div>`).join(''),
-dettes:()=>`<div class="card"><input id="dn" placeholder="Nom du client"><input id="da" type="number" inputmode="numeric" placeholder="Montant dû (GNF)"><button class="main" data-a="addd">Ajouter la dette</button></div><h4>Total à recevoir : ${F(S.debts.reduce((t,d)=>t+d.amount-d.paid,0))}</h4>`
- +S.debts.map(d=>{const r=d.amount-d.paid;return `<div class="row"><div><b>${esc(d.name)}</b><br><small>${r>0?'Reste '+F(r):'Soldée'}</small></div><div class="bt">${r>0?`<button data-a="payd" data-id="${d.id}">Payé</button>`:''}<button class="x" data-a="deld" data-id="${d.id}">✕</button></div></div>`}).join(''),
-bilan:()=>{const sv=sum(S.sales,'total'),dp=sum(S.exp,'amount'),r=sv-dp,days={},cats={};
- S.sales.forEach(s=>days[s.day]=(days[s.day]||0)+s.total);S.exp.forEach(e=>cats[e.cat]=(cats[e.cat]||0)+e.amount);
- return `<input type="month" id="mo" data-a="mon" value="${S.month}"><div class="card">Ventes<div class="big">${F(sv)}</div>Dépenses (salaires inclus)<div class="big">${F(dp)}</div>Résultat<div class="big ${r<0?'neg':''}">${F(r)}</div></div><h4>Dépenses par catégorie</h4>`
- +(Object.entries(cats).map(([k,v])=>`<div class="row"><span>${esc(k)}</span><b>${F(v)}</b></div>`).join('')||'<p class="m">Aucune dépense.</p>')
+dettes:()=>{const cl=S.debts.filter(d=>d.kind!='supplier');return `<div class="card"><input id="dn" placeholder="Nom du client"><input id="da" type="number" inputmode="numeric" placeholder="Montant dû (GNF)"><button class="main" data-a="addd">Ajouter la dette</button></div><h4>Total à recevoir : ${F(cl.reduce((t,d)=>t+d.amount-d.paid,0))}</h4>`+cl.map(rowD).join('')},
+bilan:()=>{const sv=sum(S.sales,'total'),cg=sum(S.sales,'cost'),ach=sum(S.exp.filter(e=>e.cat==CAT0),'amount'),dp=sum(S.exp,'amount')-ach,r=sv-cg-dp,days={},cats={},pays={};
+ S.sales.forEach(s=>{days[s.day]=(days[s.day]||0)+s.total;const k=s.pay||'Espèces';pays[k]=(pays[k]||0)+s.total});S.exp.forEach(e=>{if(e.cat!=CAT0)cats[e.cat]=(cats[e.cat]||0)+e.amount});
+ return `<input type="month" id="mo" value="${S.month}"><div class="card">Ventes<div class="big">${F(sv)}</div>Coût d’achat des produits vendus<div class="big">${F(cg)}</div>Marge<div class="big">${F(sv-cg)}</div>Dépenses (salaires inclus, hors achats)<div class="big">${F(dp)}</div>Résultat du mois<div class="big ${r<0?'neg':''}">${F(r)}</div><small>Achats de marchandise enregistrés : ${F(ach)}</small></div><h4>Ventes par mode de paiement</h4>`
+ +(Object.entries(pays).map(([k,v])=>`<div class="row"><span>${esc(k)}</span><b>${F(v)}</b></div>`).join('')||'<p class="m">Aucune vente.</p>')
+ +'<h4>Dépenses par catégorie</h4>'+(Object.entries(cats).map(([k,v])=>`<div class="row"><span>${esc(k)}</span><b>${F(v)}</b></div>`).join('')||'<p class="m">Aucune dépense.</p>')
  +'<h4>Ventes par jour</h4>'+(Object.keys(days).sort().reverse().map(k=>`<div class="row"><span>${k.split('-').reverse().join('/')}</span><b>${F(days[k])}</b></div>`).join('')||'<p class="m">Aucune vente.</p>')}};
 const v=id=>$('#'+id).value.trim(),P=id=>S.products.find(x=>x.id==id),D=()=>({day:today(),month:today().slice(0,7),by:auth.currentUser.uid}),
+sale=(p,n,total,name)=>{if(!ok())return;if(!(n>0))return;if(n>p.stock)return toast('Stock insuffisant');
+ const w=writeBatch(db);w.set(doc(c('sales')),{pid:p.id,name,qty:n,total,cost:n*(p.cost||0),pay:S.pay,ts:serverTimestamp(),...D()});w.update(doc(c('products'),p.id),{stock:increment(-n)});go(w.commit());toast('Vendu : '+n+' × '+name)},
+g=(t,d)=>{const x=prompt(t,d);return x===null?null:(+x||0)},
 A={out:()=>signOut(auth),
 tab:b=>{S.tab=b.dataset.k;if(S.tab=='vendre'&&S.month!=today().slice(0,7)){S.month=today().slice(0,7);listen()}draw()},
-sell:b=>{if(!ok())return;const p=P(b.dataset.id),n=+b.dataset.n||+prompt('Quantité vendue ?');if(!(n>0))return;if(n>p.stock)return toast('Stock insuffisant');
- const w=writeBatch(db);w.set(doc(c('sales')),{pid:p.id,name:p.name,qty:n,total:n*p.price,ts:serverTimestamp(),...D()});w.update(doc(c('products'),p.id),{stock:increment(-n)});go(w.commit());toast('Vendu : '+n+' × '+p.name)},
-delsale:b=>{if(!ok()||!confirm('Annuler cette vente ?'))return;const s=S.sales.find(x=>x.id==b.dataset.id),w=writeBatch(db);w.delete(doc(c('sales'),s.id));w.update(doc(c('products'),s.pid),{stock:increment(s.qty)});go(w.commit())},
-addp:()=>{if(!ok())return;const n=v('pn'),p=+v('pp'),s=+v('ps');if(!n||!(p>=0))return toast('Nom et prix obligatoires');go(addDoc(c('products'),{name:n,price:p,stock:s||0}))},
-stk:b=>{if(!ok())return;const n=+prompt('Quantité à ajouter (ex : 20) ou à retirer (ex : -5)');if(n)go(updateDoc(doc(c('products'),b.dataset.id),{stock:increment(n)}))},
-prx:b=>{if(!ok())return;const n=+prompt('Nouveau prix (GNF)');if(n>=0)go(updateDoc(doc(c('products'),b.dataset.id),{price:n}))},
+sell:b=>{if(!ok())return;const p=P(b.dataset.id),n=+b.dataset.n||+prompt('Quantité vendue ?');sale(p,n,n*p.price,p.name)},
+sellc:b=>{const p=P(b.dataset.id);sale(p,p.pack,p.packPrice,p.name+' (carton)')},
+rec:b=>{const s=S.sales.find(x=>x.id==b.dataset.id);wa(`*${S.info.name||'Ma Boutique'}*\nReçu du ${s.day.split('-').reverse().join('/')}\n${s.qty} × ${s.name}\nTotal : ${F(s.total)}\nPayé en : ${s.pay||'Espèces'}\nMerci de votre confiance !`)},
+reap:()=>wa(`*Liste à racheter – ${S.info.name||'Ma Boutique'}*\n`+S.products.filter(low).map(p=>'- '+p.name+' (reste '+p.stock+')').join('\n')),
+sug:b=>{$('#pn').value=b.dataset.n;$('#pp').focus()},
+delsale:b=>{if(!ok()||!confirm('Annuler cette vente ?'))return;const s=S.sales.find(x=>x.id==b.dataset.id),w=writeBatch(db);w.delete(doc(c('sales'),s.id));if(P(s.pid))w.update(doc(c('products'),s.pid),{stock:increment(s.qty)});go(w.commit())},
+addp:()=>{if(!ok())return;const n=v('pn'),p=+v('pp'),k=+v('pk')||0;if(!n||!(p>=0)||$('#pp').value==='')return toast('Nom et prix de vente obligatoires');
+ go(addDoc(c('products'),{name:n,price:p,cost:+v('pc')||0,stock:+v('ps')||0,pack:k,packPrice:k>1?(+v('pq')||k*p):0,min:5}));clr()},
+stk:b=>{if(!ok())return;const n=+prompt('Quantité à ajouter en pièces (ex : 20) ou à retirer (ex : -5)');if(n)go(updateDoc(doc(c('products'),b.dataset.id),{stock:increment(n)}))},
+prx:b=>{if(!ok())return;const p=P(b.dataset.id),a=g('Prix de vente par pièce (GNF)',p.price);if(a===null)return;
+ const co=g('Prix d’achat par pièce (GNF)',p.cost||0);if(co===null)return;
+ const k=g('Pièces par carton (0 = pas de carton)',p.pack||0);if(k===null)return;
+ const q=k>1?g('Prix de vente du carton (GNF)',p.packPrice||k*a):0;if(q===null)return;
+ const m=g('Alerte stock bas : à partir de combien de pièces ?',p.min??5);if(m===null)return;
+ go(updateDoc(doc(c('products'),p.id),{price:a,cost:co,pack:k,packPrice:q,min:m}))},
 delp:b=>{if(ok()&&confirm('Supprimer ce produit ?'))go(deleteDoc(doc(c('products'),b.dataset.id)))},
-adde:()=>{if(!ok())return;const l=v('el'),a=+v('ea');if(!l||!(a>0))return toast('Libellé et montant obligatoires');go(addDoc(c('expenses'),{label:l,amount:a,cat:v('ec'),...D()}))},
+adde:()=>{if(!ok())return;const l=v('el'),a=+v('ea');if(!l||!(a>0))return toast('Libellé et montant obligatoires');go(addDoc(c('expenses'),{label:l,amount:a,cat:v('ec'),...D()}));clr()},
 dele:b=>{if(ok()&&confirm('Supprimer cette dépense ?'))go(deleteDoc(doc(c('expenses'),b.dataset.id)))},
-addd:()=>{if(!ok())return;const n=v('dn'),a=+v('da');if(!n||!(a>0))return toast('Nom et montant obligatoires');go(addDoc(c('debts'),{name:n,amount:a,paid:0,day:today()}))},
+addd:()=>{if(!ok())return;const n=v('dn'),a=+v('da');if(!n||!(a>0))return toast('Nom et montant obligatoires');go(addDoc(c('debts'),{name:n,amount:a,paid:0,day:today()}));clr()},
+addf:()=>{if(!ok())return;const n=v('fn'),a=+v('fa');if(!n||!(a>0))return toast('Fournisseur et montant obligatoires');go(addDoc(c('debts'),{name:n,amount:a,paid:0,day:today(),kind:'supplier'}));clr()},
 payd:b=>{if(!ok())return;const n=+prompt('Montant payé (GNF)');if(n>0)go(updateDoc(doc(c('debts'),b.dataset.id),{paid:increment(n)}))},
-deld:b=>{if(ok()&&confirm('Supprimer cette dette ?'))go(deleteDoc(doc(c('debts'),b.dataset.id)))}};
+deld:b=>{if(ok()&&confirm('Supprimer cette ligne ?'))go(deleteDoc(doc(c('debts'),b.dataset.id)))}};
 document.addEventListener('click',e=>{const b=e.target.closest('button[data-a]');if(b&&A[b.dataset.a])A[b.dataset.a](b)});
-document.addEventListener('change',e=>{if(e.target.id=='mo'&&e.target.value){S.month=e.target.value;listen()}});
+document.addEventListener('change',e=>{const i=e.target.id;if(i=='mo'&&e.target.value){S.month=e.target.value;listen()}if(i=='pm')S.pay=e.target.value;
+ if(i=='ty'){S.type=e.target.value;store.set('type_'+S.shop,S.type);e.target.blur();draw()}});
 show('login');
-</script></body></html>
+</script></body></html>const C='mb-v1';
+self.addEventListener('install',()=>self.skipWaiting());
+self.addEventListener('activate',e=>e.waitUntil(clients.claim()));
+self.addEventListener('fetch',e=>{
+ const r=e.request;if(r.method!=='GET')return;
+ const u=new URL(r.url);
+ if(u.hostname==='www.gstatic.com'){
+  e.respondWith(caches.open(C).then(async c=>(await c.match(r))||fetch(r).then(x=>{c.put(r,x.clone());return x})));
+  return}
+ if(u.origin===location.origin){
+  e.respondWith(fetch(r).then(x=>{const k=x.clone();caches.open(C).then(c=>c.put(r,k));return x}).catch(()=>caches.match(r)))}
+});
