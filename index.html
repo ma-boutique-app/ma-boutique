@@ -142,15 +142,4 @@ document.addEventListener('click',e=>{const b=e.target.closest('button[data-a]')
 document.addEventListener('change',e=>{const i=e.target.id;if(i=='mo'&&e.target.value){S.month=e.target.value;listen()}if(i=='pm')S.pay=e.target.value;
  if(i=='ty'){S.type=e.target.value;store.set('type_'+S.shop,S.type);e.target.blur();draw()}});
 show('login');
-</script></body></html>const C='mb-v1';
-self.addEventListener('install',()=>self.skipWaiting());
-self.addEventListener('activate',e=>e.waitUntil(clients.claim()));
-self.addEventListener('fetch',e=>{
- const r=e.request;if(r.method!=='GET')return;
- const u=new URL(r.url);
- if(u.hostname==='www.gstatic.com'){
-  e.respondWith(caches.open(C).then(async c=>(await c.match(r))||fetch(r).then(x=>{c.put(r,x.clone());return x})));
-  return}
- if(u.origin===location.origin){
-  e.respondWith(fetch(r).then(x=>{const k=x.clone();caches.open(C).then(c=>c.put(r,k));return x}).catch(()=>caches.match(r)))}
-});
+</script></body></html>
