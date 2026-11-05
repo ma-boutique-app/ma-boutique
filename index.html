@@ -28,7 +28,7 @@ small,.m{color:var(--m)}
 <div id="login">
 <h2>Ma Boutique</h2>
 <form id="lf">
-<input id="code" placeholder="Code de la boutique" autocapitalize="none" required>
+<input id="code" placeholder="Code de la boutique" autocapitalize="none" autocomplete="off" required>
 <input id="em" type="email" placeholder="E-mail" autocomplete="username" required>
 <input id="pw" type="password" placeholder="Mot de passe" autocomplete="current-password" required>
 <button class="main">Se connecter</button>
@@ -42,7 +42,7 @@ import {initializeApp} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-
 import {getAuth,signInWithEmailAndPassword,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
 import {initializeFirestore,persistentLocalCache,doc,getDoc,collection,addDoc,updateDoc,deleteDoc,onSnapshot,query,where,writeBatch,increment,serverTimestamp} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
 // >>> METS ICI TON NUMÉRO Orange Money / MTN MoMo (affiché quand l'abonnement est terminé)
-const PAY='VOTRE NUMÉRO';
+const PAY='+224620838480/+224662494554'
 const PM=['Espèces','Orange Money','MTN MoMo'],CAT0='Achat de marchandise',
 E=['Salaire','Loyer','Électricité','Transport'],
 T={boutique:{n:'Boutique',p:['Riz','Sucre','Huile','Lait','Savon']},
@@ -53,10 +53,13 @@ restaurant:{n:'Restaurant',e:['Salaire','Gaz ou charbon','Électricité','Loyer'
 const app=initializeApp({apiKey:"AIzaSyDFS_aJPHmarHVL8UiHwn39njO34Kk7k1w",authDomain:"ma-boutique-e1fe3.firebaseapp.com",projectId:"ma-boutique-e1fe3",storageBucket:"ma-boutique-e1fe3.firebasestorage.app",messagingSenderId:"66591651573",appId:"1:66591651573:web:572780596e446d3c6c37bc"});
 const auth=getAuth(app),db=initializeFirestore(app,{localCache:persistentLocalCache()});
 const $=s=>document.querySelector(s),F=n=>Number(n||0).toLocaleString('fr-FR')+' GNF',
-esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])),
+esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),
+N=x=>Number(x)||0,
 today=()=>new Date().toLocaleDateString('sv'),sum=(a,k)=>a.reduce((t,x)=>t+(+x[k]||0),0),
 c=n=>collection(db,'shops',S.shop,n),
 store={get:k=>{try{return localStorage.getItem(k)}catch(e){}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}},
+// Accepte "boutique-test" mais aussi "Boutique test (boutique-test)" : on garde le code seul, en minuscules
+norm=s=>{s=String(s||'').trim();const m=s.match(/\(([^)]+)\)\s*$/);return (m?m[1]:s).trim().toLowerCase()},
 S={tab:'',month:today().slice(0,7),products:[],sales:[],exp:[],debts:[],u:[],pay:'Espèces',type:'boutique'};
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 addEventListener('online',()=>draw());addEventListener('offline',()=>draw());
@@ -67,12 +70,17 @@ wa=t=>open('https://wa.me/?text='+encodeURIComponent(t)),
 clr=()=>document.querySelectorAll('#main .card input').forEach(i=>{i.value='';i.blur()});
 function show(v){$('#login').style.display=v=='login'?'block':'none';$('#app').style.display=v=='app'?'block':'none';$('#nav').style.display=v=='app'?'flex':'none'}
 $('#code').value=store.get('code')||'';
-$('#lf').onsubmit=async e=>{e.preventDefault();$('#err').textContent='';store.set('code',$('#code').value.trim());
+$('#lf').onsubmit=async e=>{e.preventDefault();$('#err').textContent='';
+ const code=norm($('#code').value);$('#code').value=code;store.set('code',code);
  try{await signInWithEmailAndPassword(auth,$('#em').value.trim(),$('#pw').value)}catch(x){$('#err').textContent=navigator.onLine?'E-mail ou mot de passe incorrect':'Pas de connexion internet'}};
-onAuthStateChanged(auth,u=>u?start(u):(S.role=null,show('login')));
-async function start(u){const code=store.get('code');
+onAuthStateChanged(auth,u=>{if(u)return start(u);
+ S.u.forEach(f=>f());S.u=[];S.role=null;S.products=[];S.sales=[];S.exp=[];S.debts=[];show('login')});
+async function start(u){const code=norm(store.get('code'));
+ if(!code){$('#err').textContent='Code de boutique ou compte incorrect';signOut(auth);return}
  try{const m=await getDoc(doc(db,'shops',code,'members',u.uid));if(!m.exists())throw 0;
-  const sh=await getDoc(doc(db,'shops',code));S.shop=code;S.role=m.data().role;S.info=sh.data();
+  const sh=await getDoc(doc(db,'shops',code));if(!sh.exists())throw 0;
+  S.shop=code;S.role=m.data().role;S.info=sh.data();
+  if(!TABS[S.role])throw 0;
   S.type=T[S.info.type]?S.info.type:(T[store.get('type_'+code)]?store.get('type_'+code):'boutique');
   S.rw=!S.info.blocked&&S.info.accessUntil?.toMillis()>Date.now();
   S.tab=S.role=='comptable'?'bilan':'vendre';listen();show('app')
@@ -86,30 +94,30 @@ function listen(){S.u.forEach(f=>f());S.u=[];const r=S.role,mq=n=>query(c(n),whe
 const TABS={patron:[['vendre','Vendre'],['produits','Produits'],['achats','Achats'],['depenses','Dépenses'],['dettes','Dettes'],['bilan','Bilan']],vendeur:[['vendre','Vendre'],['produits','Stock'],['dettes','Dettes']],comptable:[['bilan','Bilan']]};
 function draw(){if(!S.role)return;if(document.activeElement?.matches('#main input,#main select'))return;
  const ms=S.info.accessUntil?.toMillis()||0,exp=new Date(ms).toLocaleDateString('fr-FR'),left=Math.ceil((ms-Date.now())/864e5);
- $('#bar').innerHTML=`<b>${esc(S.info.name||'Ma Boutique')}</b><small>${S.role}</small>${navigator.onLine?'':'<small class="neg">Hors ligne</small>'}<button data-a="out">Sortir</button>`;
+ $('#bar').innerHTML=`<b>${esc(S.info.name||'Ma Boutique')}</b><small>${esc(S.role)}</small>${navigator.onLine?'':'<small class="neg">Hors ligne</small>'}<button data-a="out">Sortir</button>`;
  $('#ban').innerHTML=S.rw?(left<=7?`<div class="w">Votre abonnement se termine le ${exp}. Pensez à le renouveler.</div>`:''):`<div class="w">Abonnement terminé (${exp}). Lecture seule. Pour réactiver, payez par Orange Money ou MTN MoMo au <b>${esc(PAY)}</b>, puis envoyez la preuve de paiement.</div>`;
  $('#nav').innerHTML=TABS[S.role].map(([k,l])=>`<button class="${k==S.tab?'on':''}" data-a="tab" data-k="${k}">${l}</button>`).join('');
- $('#main').innerHTML=V[S.tab]()}
-const low=p=>p.stock<=(p.min??5),
-pr=p=>`<div><b>${esc(p.name)}</b><br><small>${F(p.price)}${p.pack>1?` · carton ${F(p.packPrice)} (${p.pack})`:''} · <span class="${low(p)?'neg':''}">stock ${p.stock}</span>${S.role=='patron'&&p.cost?` · achat ${F(p.cost)}`:''}</small></div>`,
-alerte=()=>{const l=S.products.filter(low);return l.length?`<div class="w">Stock bas : ${l.map(p=>esc(p.name)+' ('+p.stock+')').join(', ')}${S.role=='patron'?'<br><button data-a="reap">Liste à racheter (WhatsApp)</button>':''}</div>`:''},
-rowD=d=>{const r=d.amount-d.paid;return `<div class="row"><div><b>${esc(d.name)}</b><br><small>${r>0?'Reste '+F(r):'Soldé'}</small></div><div class="bt">${r>0?`<button data-a="payd" data-id="${d.id}">Payé</button>`:''}<button class="x" data-a="deld" data-id="${d.id}">✕</button></div></div>`},
+ $('#main').innerHTML=(V[S.tab]||V[TABS[S.role][0][0]])()}
+const low=p=>N(p.stock)<=(p.min??5),
+pr=p=>`<div><b>${esc(p.name)}</b><br><small>${F(p.price)}${p.pack>1?` · carton ${F(p.packPrice)} (${N(p.pack)})`:''} · <span class="${low(p)?'neg':''}">stock ${N(p.stock)}</span>${S.role=='patron'&&p.cost?` · achat ${F(p.cost)}`:''}</small></div>`,
+alerte=()=>{const l=S.products.filter(low);return l.length?`<div class="w">Stock bas : ${l.map(p=>esc(p.name)+' ('+N(p.stock)+')').join(', ')}${S.role=='patron'?'<br><button data-a="reap">Liste à racheter (WhatsApp)</button>':''}</div>`:''},
+rowD=d=>{const r=d.amount-d.paid;return `<div class="row"><div><b>${esc(d.name)}</b><br><small>${r>0?'Reste '+F(r):'Soldé'}</small></div><div class="bt">${r>0?`<button data-a="payd" data-id="${esc(d.id)}">Payé</button>`:''}<button class="x" data-a="deld" data-id="${esc(d.id)}">✕</button></div></div>`},
 V={
 vendre:()=>{const ts=S.sales.filter(s=>s.day==today());
- return `<h3>Aujourd’hui : ${F(sum(ts,'total'))}</h3>${alerte()}<small>Payé en :</small><select id="pm">${PM.map(x=>`<option${x==S.pay?' selected':''}>${x}</option>`).join('')}</select>`+(S.products.map(p=>`<div class="row">${pr(p)}<div class="bt"><button data-a="sell" data-id="${p.id}" data-n="1">+1</button><button data-a="sell" data-id="${p.id}" data-n="5">+5</button><button data-a="sell" data-id="${p.id}" data-n="0">…</button>${p.pack>1?`<button data-a="sellc" data-id="${p.id}">Carton</button>`:''}</div></div>`).join('')||'<p class="m">Aucun produit. Le patron doit en ajouter.</p>')
- +'<h4>Ventes du jour</h4>'+ts.sort((a,b)=>(b.ts?.seconds||9e9)-(a.ts?.seconds||9e9)).map(s=>`<div class="row"><span>${s.qty} × ${esc(s.name)}<br><small>${esc(s.pay||'Espèces')}</small></span><span>${F(s.total)} <button data-a="rec" data-id="${s.id}">Reçu</button>${S.role=='patron'?` <button class="x" data-a="delsale" data-id="${s.id}">✕</button>`:''}</span></div>`).join('')},
+ return `<h3>Aujourd’hui : ${F(sum(ts,'total'))}</h3>${alerte()}<small>Payé en :</small><select id="pm">${PM.map(x=>`<option${x==S.pay?' selected':''}>${x}</option>`).join('')}</select>`+(S.products.map(p=>`<div class="row">${pr(p)}<div class="bt"><button data-a="sell" data-id="${esc(p.id)}" data-n="1">+1</button><button data-a="sell" data-id="${esc(p.id)}" data-n="5">+5</button><button data-a="sell" data-id="${esc(p.id)}" data-n="0">…</button>${p.pack>1?`<button data-a="sellc" data-id="${esc(p.id)}">Carton</button>`:''}</div></div>`).join('')||'<p class="m">Aucun produit. Le patron doit en ajouter.</p>')
+ +'<h4>Ventes du jour</h4>'+ts.sort((a,b)=>(b.ts?.seconds||9e9)-(a.ts?.seconds||9e9)).map(s=>`<div class="row"><span>${N(s.qty)} × ${esc(s.name)}<br><small>${esc(s.pay||'Espèces')}</small></span><span>${F(s.total)} <button data-a="rec" data-id="${esc(s.id)}">Reçu</button>${S.role=='patron'?` <button class="x" data-a="delsale" data-id="${esc(s.id)}">✕</button>`:''}</span></div>`).join('')},
 produits:()=>alerte()+(S.role=='patron'?`<div class="card"><small>Type de commerce :</small><select id="ty">${Object.entries(T).map(([k,t])=>`<option value="${k}"${k==S.type?' selected':''}>${t.n}</option>`).join('')}</select><small>Suggestions (touchez pour remplir le nom) :</small><div class="bt" style="justify-content:flex-start;margin:6px 0">${T[S.type].p.map(x=>`<button data-a="sug" data-n="${esc(x)}">${esc(x)}</button>`).join('')}</div><input id="pn" placeholder="Nom du produit"><input id="pc" type="number" inputmode="numeric" placeholder="Prix d’achat par pièce (GNF)"><input id="pp" type="number" inputmode="numeric" placeholder="Prix de vente par pièce (GNF)"><input id="ps" type="number" inputmode="numeric" placeholder="Stock de départ (en pièces)"><input id="pk" type="number" inputmode="numeric" placeholder="Pièces par carton (facultatif)"><input id="pq" type="number" inputmode="numeric" placeholder="Prix de vente du carton (facultatif)"><button class="main" data-a="addp">Ajouter</button></div>`:'')
- +S.products.map(p=>`<div class="row">${pr(p)}${S.role=='patron'?`<div class="bt"><button data-a="stk" data-id="${p.id}">Stock</button><button data-a="prx" data-id="${p.id}">Modifier</button><button class="x" data-a="delp" data-id="${p.id}">✕</button></div>`:''}</div>`).join(''),
+ +S.products.map(p=>`<div class="row">${pr(p)}${S.role=='patron'?`<div class="bt"><button data-a="stk" data-id="${esc(p.id)}">Stock</button><button data-a="prx" data-id="${esc(p.id)}">Modifier</button><button class="x" data-a="delp" data-id="${esc(p.id)}">✕</button></div>`:''}</div>`).join(''),
 achats:()=>{const fo=S.debts.filter(d=>d.kind=='supplier');return `<div class="card"><b>Fournisseurs : achat à crédit</b><input id="fn" placeholder="Nom du fournisseur"><input id="fa" type="number" inputmode="numeric" placeholder="Montant à payer (GNF)"><button class="main" data-a="addf">Ajouter</button></div><h4>Total à payer aux fournisseurs : ${F(fo.reduce((t,d)=>t+d.amount-d.paid,0))}</h4>`+(fo.map(rowD).join('')||'<p class="m">Aucune dette fournisseur.</p>')},
 depenses:()=>`<div class="card"><input id="el" placeholder="Libellé (ex : salaire de Fanta)"><input id="ea" type="number" inputmode="numeric" placeholder="Montant (GNF)"><select id="ec">${[...(T[S.type].e||E),CAT0,'Autre'].map(x=>`<option>${x}</option>`).join('')}</select><button class="main" data-a="adde">Enregistrer</button></div><h4>Total du mois : ${F(sum(S.exp,'amount'))}</h4>`
- +S.exp.sort((a,b)=>b.day>a.day?1:-1).map(e=>`<div class="row"><div><b>${esc(e.label)}</b><br><small>${esc(e.cat)} · ${e.day}</small></div><div>${F(e.amount)} <button class="x" data-a="dele" data-id="${e.id}">✕</button></div></div>`).join(''),
+ +S.exp.sort((a,b)=>b.day>a.day?1:-1).map(e=>`<div class="row"><div><b>${esc(e.label)}</b><br><small>${esc(e.cat)} · ${esc(e.day)}</small></div><div>${F(e.amount)} <button class="x" data-a="dele" data-id="${esc(e.id)}">✕</button></div></div>`).join(''),
 dettes:()=>{const cl=S.debts.filter(d=>d.kind!='supplier');return `<div class="card"><input id="dn" placeholder="Nom du client"><input id="da" type="number" inputmode="numeric" placeholder="Montant dû (GNF)"><button class="main" data-a="addd">Ajouter la dette</button></div><h4>Total à recevoir : ${F(cl.reduce((t,d)=>t+d.amount-d.paid,0))}</h4>`+cl.map(rowD).join('')},
 bilan:()=>{const sv=sum(S.sales,'total'),cg=sum(S.sales,'cost'),ach=sum(S.exp.filter(e=>e.cat==CAT0),'amount'),dp=sum(S.exp,'amount')-ach,r=sv-cg-dp,days={},cats={},pays={};
  S.sales.forEach(s=>{days[s.day]=(days[s.day]||0)+s.total;const k=s.pay||'Espèces';pays[k]=(pays[k]||0)+s.total});S.exp.forEach(e=>{if(e.cat!=CAT0)cats[e.cat]=(cats[e.cat]||0)+e.amount});
- return `<input type="month" id="mo" value="${S.month}"><div class="card">Ventes<div class="big">${F(sv)}</div>Coût d’achat des produits vendus<div class="big">${F(cg)}</div>Marge<div class="big">${F(sv-cg)}</div>Dépenses (salaires inclus, hors achats)<div class="big">${F(dp)}</div>Résultat du mois<div class="big ${r<0?'neg':''}">${F(r)}</div><small>Achats de marchandise enregistrés : ${F(ach)}</small></div><h4>Ventes par mode de paiement</h4>`
+ return `<input type="month" id="mo" value="${esc(S.month)}"><div class="card">Ventes<div class="big">${F(sv)}</div>Coût d’achat des produits vendus<div class="big">${F(cg)}</div>Marge<div class="big">${F(sv-cg)}</div>Dépenses (salaires inclus, hors achats)<div class="big">${F(dp)}</div>Résultat du mois<div class="big ${r<0?'neg':''}">${F(r)}</div><small>Achats de marchandise enregistrés : ${F(ach)}</small></div><h4>Ventes par mode de paiement</h4>`
  +(Object.entries(pays).map(([k,v])=>`<div class="row"><span>${esc(k)}</span><b>${F(v)}</b></div>`).join('')||'<p class="m">Aucune vente.</p>')
  +'<h4>Dépenses par catégorie</h4>'+(Object.entries(cats).map(([k,v])=>`<div class="row"><span>${esc(k)}</span><b>${F(v)}</b></div>`).join('')||'<p class="m">Aucune dépense.</p>')
- +'<h4>Ventes par jour</h4>'+(Object.keys(days).sort().reverse().map(k=>`<div class="row"><span>${k.split('-').reverse().join('/')}</span><b>${F(days[k])}</b></div>`).join('')||'<p class="m">Aucune vente.</p>')}};
+ +'<h4>Ventes par jour</h4>'+(Object.keys(days).sort().reverse().map(k=>`<div class="row"><span>${esc(String(k).split('-').reverse().join('/'))}</span><b>${F(days[k])}</b></div>`).join('')||'<p class="m">Aucune vente.</p>')}};
 const v=id=>$('#'+id).value.trim(),P=id=>S.products.find(x=>x.id==id),D=()=>({day:today(),month:today().slice(0,7),by:auth.currentUser.uid}),
 sale=(p,n,total,name)=>{if(!ok())return;if(!(n>0))return;if(n>p.stock)return toast('Stock insuffisant');
  const w=writeBatch(db);w.set(doc(c('sales')),{pid:p.id,name,qty:n,total,cost:n*(p.cost||0),pay:S.pay,ts:serverTimestamp(),...D()});w.update(doc(c('products'),p.id),{stock:increment(-n)});go(w.commit());toast('Vendu : '+n+' × '+name)},
@@ -139,7 +147,9 @@ addf:()=>{if(!ok())return;const n=v('fn'),a=+v('fa');if(!n||!(a>0))return toast(
 payd:b=>{if(!ok())return;const n=+prompt('Montant payé (GNF)');if(n>0)go(updateDoc(doc(c('debts'),b.dataset.id),{paid:increment(n)}))},
 deld:b=>{if(ok()&&confirm('Supprimer cette ligne ?'))go(deleteDoc(doc(c('debts'),b.dataset.id)))}};
 document.addEventListener('click',e=>{const b=e.target.closest('button[data-a]');if(b&&A[b.dataset.a])A[b.dataset.a](b)});
-document.addEventListener('change',e=>{const i=e.target.id;if(i=='mo'&&e.target.value){S.month=e.target.value;listen()}if(i=='pm')S.pay=e.target.value;
+document.addEventListener('change',e=>{const i=e.target.id;
+ if(i=='mo'&&e.target.value){S.month=e.target.value;e.target.blur();listen()}
+ if(i=='pm'){S.pay=e.target.value;e.target.blur();draw()}
  if(i=='ty'){S.type=e.target.value;store.set('type_'+S.shop,S.type);e.target.blur();draw()}});
 show('login');
 </script></body></html>
