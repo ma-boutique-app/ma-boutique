@@ -41,7 +41,7 @@ small,.m{color:var(--m)}.neg{color:var(--r)}
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
 import {getAuth,signInWithEmailAndPassword,onAuthStateChanged,signOut,createUserWithEmailAndPassword} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
-import {getFirestore,collection,doc,setDoc,updateDoc,onSnapshot,Timestamp} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
+import {getFirestore,collection,doc,setDoc,updateDoc,deleteDoc,getDocs,writeBatch,onSnapshot,Timestamp} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
 const cfg={apiKey:"AIzaSyDFS_aJPHmarHVL8UiHwn39njO34Kk7k1w",authDomain:"ma-boutique-e1fe3.firebaseapp.com",projectId:"ma-boutique-e1fe3",storageBucket:"ma-boutique-e1fe3.firebasestorage.app",messagingSenderId:"66591651573",appId:"1:66591651573:web:572780596e446d3c6c37bc"},
 ADMIN="PQ15rICcjFSALPRUsWQxaVxuXFH3";
 const app=initializeApp(cfg),auth=getAuth(app),db=getFirestore(app),secAuth=getAuth(initializeApp(cfg,"sec"));
@@ -59,9 +59,9 @@ onAuthStateChanged(auth,u=>{
  else{if(u){$("#err").textContent="Accès réservé à l’administrateur";signOut(auth)}show("login")}});
 function draw(){const s=$("#sel"),cur=s.value;
  s.innerHTML=shops.map(x=>`<option value="${esc(x.id)}">${esc(x.name)} (${esc(x.id)})</option>`).join("");if(cur)s.value=cur;
- $("#list").innerHTML=shops.map(x=>{const ms=x.accessUntil?.toMillis()||0,st=x.blocked?"Bloquée":ms>Date.now()?"Active":"Expirée",cp=x.plan=="complet",
+ $("#list").innerHTML=shops.map(x=>{const ms=x.accessUntil?.toMillis()||0,act=ms>Date.now(),st=x.blocked?"Bloquée":act?(x.trial?"Essai gratuit":"Active"):(x.trial?"Essai terminé":"Expirée"),cp=x.plan=="complet",
  pl=cp?"Complet : vendeur + comptable + patron · 100 000 GNF/mois":"Base : vendeur + comptable · 60 000 GNF/mois";
- return `<div class="card"><b>${esc(x.name)}</b> <small>code : ${esc(x.id)}</small><br>${st} · fin le ${fd(ms)}<br><small>${pl}</small><div class="bt"><button data-a="ext" data-id="${esc(x.id)}" data-n="30">+30 jours</button><button data-a="ext" data-id="${esc(x.id)}" data-n="90">+90 jours</button><button data-a="plan" data-id="${esc(x.id)}">${cp?"→ Base":"→ Complet"}</button><button class="${x.blocked?"":"x"}" data-a="blk" data-id="${esc(x.id)}">${x.blocked?"Débloquer":"Bloquer"}</button></div></div>`}).join("")||'<p class="m">Aucune boutique.</p>'}
+ return `<div class="card"><b>${esc(x.name||x.id)}</b> <small>code : ${esc(x.id)}</small><br>${st} · fin le ${fd(ms)}${x.ownerEmail?`<br><small>${esc(x.ownerEmail)}</small>`:""}<br><small>${pl}</small><div class="bt"><button data-a="ext" data-id="${esc(x.id)}" data-n="30">+30 jours</button><button data-a="ext" data-id="${esc(x.id)}" data-n="90">+90 jours</button><button data-a="plan" data-id="${esc(x.id)}">${cp?"→ Base":"→ Complet"}</button><button class="${x.blocked?"":"x"}" data-a="blk" data-id="${esc(x.id)}">${x.blocked?"Débloquer":"Bloquer"}</button><button class="x" data-a="del" data-id="${esc(x.id)}">Supprimer</button></div></div>`}).join("")||'<p class="m">Aucune boutique.</p>'}
 const A={
 out:()=>signOut(auth),
 mkshop:()=>{const c=v("sc").toLowerCase(),n=v("sn"),d=+v("sd")||30;
@@ -70,16 +70,25 @@ mkshop:()=>{const c=v("sc").toLowerCase(),n=v("sn"),d=+v("sd")||30;
  if(shops.some(x=>x.id==c))return toast("Ce code existe déjà");
  setDoc(doc(db,"shops",c),{name:n,plan:"base",blocked:false,accessUntil:Timestamp.fromMillis(Date.now()+d*864e5)}).then(()=>{toast("Boutique créée");["sc","sn","sd"].forEach(i=>$("#"+i).value="")}).catch(e=>toast("Refusé : "+e.code))},
 ext:b=>{const x=shops.find(s=>s.id==b.dataset.id),base=Math.max(Date.now(),x.accessUntil?.toMillis()||0);
- updateDoc(doc(db,"shops",x.id),{accessUntil:Timestamp.fromMillis(base+b.dataset.n*864e5)}).then(()=>toast("Abonnement prolongé")).catch(e=>toast("Refusé : "+e.code))},
+ updateDoc(doc(db,"shops",x.id),{accessUntil:Timestamp.fromMillis(base+b.dataset.n*864e5),trial:false}).then(()=>toast("Abonnement prolongé")).catch(e=>toast("Refusé : "+e.code))},
 plan:b=>{const x=shops.find(s=>s.id==b.dataset.id);
  updateDoc(doc(db,"shops",x.id),{plan:x.plan=="complet"?"base":"complet"}).catch(e=>toast("Refusé : "+e.code))},
 blk:b=>{const x=shops.find(s=>s.id==b.dataset.id);if(!confirm((x.blocked?"Débloquer ":"Bloquer ")+x.name+" ?"))return;
  updateDoc(doc(db,"shops",x.id),{blocked:!x.blocked}).catch(e=>toast("Refusé : "+e.code))},
+del:async b=>{const x=shops.find(s=>s.id==b.dataset.id);if(!x)return;
+ const t=prompt("Suppression DÉFINITIVE de « "+(x.name||x.id)+" » avec tous ses produits, ventes, dépenses et dettes.\nPour confirmer, tapez le code de la boutique :\n"+x.id);
+ if(t===null)return;if(t.trim().toLowerCase()!==x.id)return toast("Code incorrect : suppression annulée");
+ try{toast("Suppression en cours…");
+  for(const sub of ["sales","expenses","products","debts","members"]){
+   const s=await getDocs(collection(db,"shops",x.id,sub));
+   for(let i=0;i<s.docs.length;i+=400){const w=writeBatch(db);s.docs.slice(i,i+400).forEach(d=>w.delete(d.ref));await w.commit()}}
+  await deleteDoc(doc(db,"shops",x.id));toast("Boutique supprimée")
+ }catch(e){toast("Refusé : "+(e.code||e.message))}},
 mkuser:async()=>{const code=$("#sel").value,em=v("ue"),pw=$("#up").value,role=$("#ur").value;
  if(!shops.some(s=>s.id==code))return toast("Créez d’abord une boutique");
  if(!em||pw.length<8)return toast("E-mail et mot de passe (8 caractères minimum)");
  try{const c=await createUserWithEmailAndPassword(secAuth,em,pw);
-  await setDoc(doc(db,"shops",code,"members",c.user.uid),{role,email:em});await signOut(secAuth);
+  await setDoc(doc(db,"shops",code,"members",c.user.uid),{role,email:em});await setDoc(doc(db,"users",c.user.uid),{shop:code});await signOut(secAuth);
   if(role=="patron")await updateDoc(doc(db,"shops",code),{plan:"complet"});
   $("#res").textContent="Compte créé. À donner au client : code "+code+", e-mail "+em+", mot de passe "+pw+".";$("#ue").value="";$("#up").value=""
  }catch(e){toast(e.code=="auth/email-already-in-use"?"Cette adresse existe déjà":"Refusé : "+(e.code||e.message))}}};
