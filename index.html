@@ -12,14 +12,15 @@ input,select{width:100%;padding:12px;margin:5px 0;border:1px solid var(--b);bord
 button{font:inherit;padding:10px 14px;border:1px solid var(--b);border-radius:10px;background:var(--c);color:var(--t)}
 button.main{background:var(--p);color:#fff;border:0;width:100%;margin-top:6px}
 button.x{color:var(--r)}
+button.lnk{width:100%;margin-top:10px;background:none;border:0;color:var(--p);font-weight:600}
 .row{display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--c);border:1px solid var(--b);border-radius:12px;padding:10px 12px;margin:7px 0}
 .bt{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 .card{background:var(--c);border:1px solid var(--b);border-radius:12px;padding:10px;margin:8px 0}
 small,.m{color:var(--m)}
 .w{background:#fff3cd;color:#664d03;padding:10px;border-radius:10px;margin:8px 0}
 #bar{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:6px 0}
-#nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--c);border-top:1px solid var(--b);padding:6px 6px calc(6px + env(safe-area-inset-bottom))}
-#nav button{flex:1;border:0;background:none;padding:10px 2px;font-size:12px}
+#nav{position:fixed;bottom:0;left:0;right:0;display:flex;overflow-x:auto;background:var(--c);border-top:1px solid var(--b);padding:6px 6px calc(6px + env(safe-area-inset-bottom))}
+#nav button{flex:1 0 auto;border:0;background:none;padding:10px 8px;font-size:12px}
 #nav .on{color:var(--p);font-weight:700}
 #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:96px;background:#222;color:#fff;padding:10px 16px;border-radius:20px;display:none;z-index:9}
 .big{font-size:22px;font-weight:700}.neg{color:var(--r)}
@@ -28,19 +29,32 @@ small,.m{color:var(--m)}
 <div id="login">
 <h2>Ma Boutique</h2>
 <form id="lf">
-<input id="code" placeholder="Code de la boutique" autocapitalize="none" autocomplete="off" required>
+<input id="code" placeholder="Code de la boutique (si demandé)" autocapitalize="none" autocomplete="off">
 <input id="em" type="email" placeholder="E-mail" autocomplete="username" required>
 <input id="pw" type="password" placeholder="Mot de passe" autocomplete="current-password" required>
 <button class="main">Se connecter</button>
 <p id="err" class="neg"></p>
+<button type="button" class="lnk" data-a="reset">Mot de passe oublié ?</button>
+<button type="button" class="lnk" data-a="showsu">Pas encore de compte ? Essai gratuit 48 h</button>
+</form>
+<form id="sf" style="display:none">
+<h3>Créer ma boutique</h3>
+<p class="m">48 heures d’essai gratuit, sans paiement.</p>
+<input id="sn" placeholder="Nom de la boutique" maxlength="60" required>
+<select id="st"></select>
+<input id="se" type="email" placeholder="Votre e-mail" autocomplete="username" required>
+<input id="sp" type="password" placeholder="Mot de passe (8 caractères minimum)" autocomplete="new-password" minlength="8" required>
+<button class="main">Commencer l’essai gratuit</button>
+<p id="serr" class="neg"></p>
+<button type="button" class="lnk" data-a="showli">J’ai déjà un compte</button>
 </form>
 </div>
 <div id="app"><div id="bar"></div><div id="ban"></div><div id="main"></div></div>
 <div id="nav"></div><div id="toast"></div>
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
-import {getAuth,signInWithEmailAndPassword,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
-import {initializeFirestore,persistentLocalCache,doc,getDoc,collection,addDoc,updateDoc,deleteDoc,onSnapshot,query,where,writeBatch,increment,serverTimestamp} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
+import {getAuth,signInWithEmailAndPassword,createUserWithEmailAndPassword,sendPasswordResetEmail,deleteUser,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
+import {initializeFirestore,persistentLocalCache,doc,getDoc,getDocs,setDoc,collection,addDoc,updateDoc,deleteDoc,onSnapshot,query,where,writeBatch,increment,serverTimestamp,Timestamp} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
 // >>> METS ICI TON NUMÉRO Orange Money / MTN MoMo (affiché quand l'abonnement est terminé)
 const PAY='+224620838480/+224662494554'
 const PM=['Espèces','Orange Money','MTN MoMo'],CAT0='Achat de marchandise',
@@ -50,86 +64,147 @@ boulangerie:{n:'Boulangerie',e:['Salaire','Farine','Levure','Électricité','Boi
 pharmacie:{n:'Pharmacie',p:['Paracétamol','Amoxicilline','Sirop','Pansements']},
 quincaillerie:{n:'Quincaillerie',p:['Ciment','Fer à béton','Peinture','Clous','Câble']},
 restaurant:{n:'Restaurant',e:['Salaire','Gaz ou charbon','Électricité','Loyer'],p:['Riz sauce','Poulet braisé','Poisson','Boisson','Jus']}};
-const app=initializeApp({apiKey:"AIzaSyDFS_aJPHmarHVL8UiHwn39njO34Kk7k1w",authDomain:"ma-boutique-e1fe3.firebaseapp.com",projectId:"ma-boutique-e1fe3",storageBucket:"ma-boutique-e1fe3.firebasestorage.app",messagingSenderId:"66591651573",appId:"1:66591651573:web:572780596e446d3c6c37bc"});
-const auth=getAuth(app),db=initializeFirestore(app,{localCache:persistentLocalCache()});
+const cfg={apiKey:"AIzaSyDFS_aJPHmarHVL8UiHwn39njO34Kk7k1w",authDomain:"ma-boutique-e1fe3.firebaseapp.com",projectId:"ma-boutique-e1fe3",storageBucket:"ma-boutique-e1fe3.firebasestorage.app",messagingSenderId:"66591651573",appId:"1:66591651573:web:572780596e446d3c6c37bc"};
+const app=initializeApp(cfg);
+const auth=getAuth(app),db=initializeFirestore(app,{localCache:persistentLocalCache()}),secAuth=getAuth(initializeApp(cfg,'sec'));
 const $=s=>document.querySelector(s),F=n=>Number(n||0).toLocaleString('fr-FR')+' GNF',
 esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),
 N=x=>Number(x)||0,
 today=()=>new Date().toLocaleDateString('sv'),sum=(a,k)=>a.reduce((t,x)=>t+(+x[k]||0),0),
+fold=s=>String(s??'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''),
 c=n=>collection(db,'shops',S.shop,n),
 store={get:k=>{try{return localStorage.getItem(k)}catch(e){}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}},
 // Accepte "boutique-test" mais aussi "Boutique test (boutique-test)" : on garde le code seul, en minuscules
 norm=s=>{s=String(s||'').trim();const m=s.match(/\(([^)]+)\)\s*$/);return (m?m[1]:s).trim().toLowerCase()},
-S={tab:'',month:today().slice(0,7),products:[],sales:[],exp:[],debts:[],u:[],pay:'Espèces',type:'boutique'};
+S={tab:'',month:today().slice(0,7),products:[],sales:[],exp:[],debts:[],team:[],bs:[],be:[],cart:[],u:[],pay:'Espèces',type:'boutique',q:'',msg:'',bt:0};
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 addEventListener('online',()=>draw());addEventListener('offline',()=>draw());
 function toast(t){const e=$('#toast');e.textContent=t;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',2600)}
 const go=p=>p.catch(e=>toast('Refusé : '+(e.code||e.message))),
-ok=()=>S.rw||(toast('Abonnement terminé : lecture seule'),false),
+ok=()=>S.rw||(toast(S.info?.trial?'Essai terminé : lecture seule':'Abonnement terminé : lecture seule'),false),
 wa=t=>open('https://wa.me/?text='+encodeURIComponent(t)),
 clr=()=>document.querySelectorAll('#main .card input').forEach(i=>{i.value='';i.blur()});
 function show(v){$('#login').style.display=v=='login'?'block':'none';$('#app').style.display=v=='app'?'block':'none';$('#nav').style.display=v=='app'?'flex':'none'}
 $('#code').value=store.get('code')||'';
+$('#st').innerHTML=Object.entries(T).map(([k,t])=>`<option value="${k}">${t.n}</option>`).join('');
 $('#lf').onsubmit=async e=>{e.preventDefault();$('#err').textContent='';
  const code=norm($('#code').value);$('#code').value=code;store.set('code',code);
  try{await signInWithEmailAndPassword(auth,$('#em').value.trim(),$('#pw').value)}catch(x){$('#err').textContent=navigator.onLine?'E-mail ou mot de passe incorrect':'Pas de connexion internet'}};
-onAuthStateChanged(auth,u=>{if(u)return start(u);
- S.u.forEach(f=>f());S.u=[];S.role=null;S.products=[];S.sales=[];S.exp=[];S.debts=[];show('login')});
-async function start(u){const code=norm(store.get('code'));
- if(!code){$('#err').textContent='Code de boutique ou compte incorrect';signOut(auth);return}
- try{const m=await getDoc(doc(db,'shops',code,'members',u.uid));if(!m.exists())throw 0;
-  const sh=await getDoc(doc(db,'shops',code));if(!sh.exists())throw 0;
+// Inscription : le commerçant crée son compte, sa boutique et son essai gratuit de 48 h
+$('#sf').onsubmit=async e=>{e.preventDefault();const er=$('#serr');er.textContent='';
+ const name=$('#sn').value.trim(),ty=$('#st').value,em=$('#se').value.trim(),pw=$('#sp').value;
+ if(!name)return er.textContent='Le nom de la boutique est obligatoire';
+ if(pw.length<8)return er.textContent='Mot de passe : 8 caractères minimum';
+ S.busy=1;let u,code,done=0;
+ try{u=(await createUserWithEmailAndPassword(auth,em,pw)).user;
+  const base=name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,20).replace(/-+$/,'')||'boutique';
+  for(let i=0;i<4&&!done;i++){code=base+'-'+Math.random().toString(36).slice(2,6);
+   try{await setDoc(doc(db,'shops',code),{name,type:ty,plan:'complet',blocked:false,trial:true,ownerUid:u.uid,ownerEmail:em,accessUntil:Timestamp.fromMillis(Date.now()+48*36e5)});done=1}catch(x){}}
+  if(!done)throw {code:'shop'};
+  await setDoc(doc(db,'shops',code,'members',u.uid),{role:'patron',email:em});
+  await setDoc(doc(db,'users',u.uid),{shop:code}).catch(()=>{});
+  store.set('code',code);$('#code').value=code;S.busy=0;
+  alert('Boutique créée !\n\nVotre code de boutique : '+code+'\nNotez-le au cas où.\n\nEssai gratuit : 48 heures.');
+  start(u)
+ }catch(x){S.busy=0;if(u)try{await deleteUser(u)}catch(y){await signOut(auth)}
+  er.textContent=x.code=='auth/email-already-in-use'?'Cette adresse existe déjà. Connectez-vous.':x.code=='auth/weak-password'?'Mot de passe trop faible':x.code=='auth/invalid-email'?'Adresse e-mail incorrecte':navigator.onLine?'Création impossible, réessayez':'Pas de connexion internet'}};
+onAuthStateChanged(auth,u=>{if(u){if(S.busy)return;return start(u)}
+ S.u.forEach(f=>f());S.u=[];S.role=null;S.products=[];S.sales=[];S.exp=[];S.debts=[];S.team=[];S.bs=[];S.be=[];S.cart=[];S.bk=null;show('login')});
+async function start(u){
+ try{let code,m,sh;
+  const tryCode=async cd=>{if(!cd)return false;
+   try{const mm=await getDoc(doc(db,'shops',cd,'members',u.uid));if(!mm.exists())return false;
+    const ss=await getDoc(doc(db,'shops',cd));if(!ss.exists())return false;code=cd;m=mm;sh=ss;return true}
+   catch(x){if(x?.code=='permission-denied')return false;throw x}};
+  if(!(await tryCode(norm(store.get('code'))))){
+   const us=await getDoc(doc(db,'users',u.uid)).catch(x=>{if(x?.code=='permission-denied')return null;throw x});
+   if(!(us?.exists()&&await tryCode(us.data().shop)))throw 0}
+  store.set('code',code);
   S.shop=code;S.role=m.data().role;S.info=sh.data();
   if(!TABS[S.role])throw 0;
+  setDoc(doc(db,'users',u.uid),{shop:code}).catch(()=>{});
   S.type=T[S.info.type]?S.info.type:(T[store.get('type_'+code)]?store.get('type_'+code):'boutique');
   S.rw=!S.info.blocked&&S.info.accessUntil?.toMillis()>Date.now();
-  S.tab=S.role=='comptable'?'bilan':'vendre';listen();show('app')
- }catch(x){if(x===0||x?.code=='permission-denied'){$('#err').textContent='Code de boutique ou compte incorrect';signOut(auth)}
+  S.tab=S.role=='comptable'?'bilan':'vendre';listen();show('app');if(S.tab=='bilan')loadBilan()
+ }catch(x){if(x===0||x?.code=='permission-denied'){$('#err').textContent='Compte introuvable. Entrez le code de votre boutique ci-dessus.';signOut(auth)}
   else{$('#err').textContent='Pas de connexion : connectez-vous une première fois avec internet';show('login')}}}
-function listen(){S.u.forEach(f=>f());S.u=[];const r=S.role,mq=n=>query(c(n),where('month','==',S.month)),
+// Lectures réduites : ventes du jour seulement ; le bilan du mois est chargé à la demande
+function listen(){S.u.forEach(f=>f());S.u=[];const r=S.role,
  L=(q,k)=>S.u.push(onSnapshot(q,s=>{S[k]=s.docs.map(d=>({id:d.id,...d.data()}));draw()},()=>toast('Lecture refusée')));
- L(mq('sales'),'sales');
- if(r!='comptable'){L(c('products'),'products');L(c('debts'),'debts')}
- if(r!='vendeur')L(mq('expenses'),'exp');draw()}
-const TABS={patron:[['vendre','Vendre'],['produits','Produits'],['achats','Achats'],['depenses','Dépenses'],['dettes','Dettes'],['bilan','Bilan']],vendeur:[['vendre','Vendre'],['produits','Stock'],['dettes','Dettes']],comptable:[['bilan','Bilan']]};
+ S.day=today();
+ if(r!='comptable'){L(query(c('sales'),where('day','==',S.day)),'sales');L(c('products'),'products');L(c('debts'),'debts')}
+ if(r=='patron'){L(query(c('expenses'),where('month','==',S.day.slice(0,7))),'exp');L(c('members'),'team')}
+ draw()}
+async function loadBilan(force){if(S.role!='patron'&&S.role!='comptable')return;
+ if(!force&&S.bk==S.month&&Date.now()-S.bt<12e4)return;
+ S.bk=S.month;S.bt=Date.now();S.bl=1;draw();
+ try{const q=n=>getDocs(query(c(n),where('month','==',S.month))),[a,b]=await Promise.all([q('sales'),q('expenses')]);
+  S.bs=a.docs.map(d=>({id:d.id,...d.data()}));S.be=b.docs.map(d=>({id:d.id,...d.data()}))}catch(e){toast('Lecture impossible');S.bk=null}
+ S.bl=0;draw()}
+const TABS={patron:[['vendre','Vendre'],['produits','Produits'],['achats','Achats'],['depenses','Dépenses'],['dettes','Dettes'],['equipe','Équipe'],['bilan','Bilan']],vendeur:[['vendre','Vendre'],['produits','Stock'],['dettes','Dettes']],comptable:[['bilan','Bilan']]};
 function draw(){if(!S.role)return;if(document.activeElement?.matches('#main input,#main select'))return;
- const ms=S.info.accessUntil?.toMillis()||0,exp=new Date(ms).toLocaleDateString('fr-FR'),left=Math.ceil((ms-Date.now())/864e5);
- $('#bar').innerHTML=`<b>${esc(S.info.name||'Ma Boutique')}</b><small>${esc(S.role)}</small>${navigator.onLine?'':'<small class="neg">Hors ligne</small>'}<button data-a="out">Sortir</button>`;
- $('#ban').innerHTML=S.rw?(left<=7?`<div class="w">Votre abonnement se termine le ${exp}. Pensez à le renouveler.</div>`:''):`<div class="w">Abonnement terminé (${exp}). Lecture seule. Pour réactiver, payez par Orange Money ou MTN MoMo au <b>${esc(PAY)}</b>, puis envoyez la preuve de paiement.</div>`;
+ const ms=S.info.accessUntil?.toMillis()||0,exp=new Date(ms).toLocaleDateString('fr-FR'),expH=new Date(ms).toLocaleString('fr-FR',{dateStyle:'short',timeStyle:'short'}),left=Math.ceil((ms-Date.now())/864e5);
+ $('#bar').innerHTML=`<b>${esc(S.info.name||'Ma Boutique')}</b><small>${esc(S.role)}${S.role=='patron'?' · code : '+esc(S.shop):''}</small>${navigator.onLine?'':'<small class="neg">Hors ligne</small>'}<button data-a="out">Sortir</button>`;
+ $('#ban').innerHTML=S.rw?(S.info.trial?`<div class="w">Essai gratuit jusqu’au ${expH}. Ensuite, pour continuer, payez par Orange Money ou MTN MoMo au <b>${esc(PAY)}</b>, puis envoyez la preuve de paiement.</div>`:(left<=7?`<div class="w">Votre abonnement se termine le ${exp}. Pensez à le renouveler.</div>`:'')):`<div class="w">${S.info.trial?'Essai gratuit terminé':'Abonnement terminé'} (${exp}). Lecture seule. Pour activer, payez par Orange Money ou MTN MoMo au <b>${esc(PAY)}</b>, puis envoyez la preuve de paiement.</div>`;
  $('#nav').innerHTML=TABS[S.role].map(([k,l])=>`<button class="${k==S.tab?'on':''}" data-a="tab" data-k="${k}">${l}</button>`).join('');
  $('#main').innerHTML=(V[S.tab]||V[TABS[S.role][0][0]])()}
 const low=p=>N(p.stock)<=(p.min??5),
 pr=p=>`<div><b>${esc(p.name)}</b><br><small>${F(p.price)}${p.pack>1?` · carton ${F(p.packPrice)} (${N(p.pack)})`:''} · <span class="${low(p)?'neg':''}">stock ${N(p.stock)}</span>${S.role=='patron'&&p.cost?` · achat ${F(p.cost)}`:''}</small></div>`,
 alerte=()=>{const l=S.products.filter(low);return l.length?`<div class="w">Stock bas : ${l.map(p=>esc(p.name)+' ('+N(p.stock)+')').join(', ')}${S.role=='patron'?'<br><button data-a="reap">Liste à racheter (WhatsApp)</button>':''}</div>`:''},
 rowD=d=>{const r=d.amount-d.paid;return `<div class="row"><div><b>${esc(d.name)}</b><br><small>${r>0?'Reste '+F(r):'Soldé'}</small></div><div class="bt">${r>0?`<button data-a="payd" data-id="${esc(d.id)}">Payé</button>`:''}<button class="x" data-a="deld" data-id="${esc(d.id)}">✕</button></div></div>`},
+fp=()=>S.products.filter(p=>fold(p.name).includes(fold(S.q))).sort((a,b)=>String(a.name).localeCompare(String(b.name),'fr')),
+lv=()=>fp().map(p=>`<div class="row">${pr(p)}<div class="bt"><button data-a="sell" data-id="${esc(p.id)}" data-n="1">+1</button><button data-a="sell" data-id="${esc(p.id)}" data-n="5">+5</button><button data-a="sell" data-id="${esc(p.id)}" data-n="0">…</button>${p.pack>1?`<button data-a="sellc" data-id="${esc(p.id)}">Carton</button>`:''}</div></div>`).join('')||'<p class="m">Aucun produit trouvé.</p>',
+lp=()=>fp().map(p=>`<div class="row">${pr(p)}${S.role=='patron'?`<div class="bt"><button data-a="stk" data-id="${esc(p.id)}">Stock</button><button data-a="prx" data-id="${esc(p.id)}">Modifier</button><button class="x" data-a="delp" data-id="${esc(p.id)}">✕</button></div>`:''}</div>`).join('')||'<p class="m">Aucun produit trouvé.</p>',
+srch=()=>`<input id="q" type="search" placeholder="Rechercher un produit" value="${esc(S.q)}" autocomplete="off">`,
+cartH=()=>S.cart.length?`<div class="card"><b>Panier</b>${S.cart.map((l,i)=>`<div class="row"><span>${N(l.qty)} × ${esc(l.name)}</span><span>${F(l.total)} <button class="x" data-a="rmc" data-i="${i}">✕</button></span></div>`).join('')}<div class="big">${F(sum(S.cart,'total'))}</div><button class="main" data-a="vcart">Valider la vente</button><button class="lnk" data-a="clc">Vider le panier</button></div>`:'',
+groups=()=>{const m=new Map();S.sales.filter(s=>s.day==today()).forEach(s=>{const k=s.rid||s.id;if(!m.has(k))m.set(k,[]);m.get(k).push(s)});return [...m.entries()].sort((a,b)=>(b[1][0].ts?.seconds||9e9)-(a[1][0].ts?.seconds||9e9))},
 V={
-vendre:()=>{const ts=S.sales.filter(s=>s.day==today());
- return `<h3>Aujourd’hui : ${F(sum(ts,'total'))}</h3>${alerte()}<small>Payé en :</small><select id="pm">${PM.map(x=>`<option${x==S.pay?' selected':''}>${x}</option>`).join('')}</select>`+(S.products.map(p=>`<div class="row">${pr(p)}<div class="bt"><button data-a="sell" data-id="${esc(p.id)}" data-n="1">+1</button><button data-a="sell" data-id="${esc(p.id)}" data-n="5">+5</button><button data-a="sell" data-id="${esc(p.id)}" data-n="0">…</button>${p.pack>1?`<button data-a="sellc" data-id="${esc(p.id)}">Carton</button>`:''}</div></div>`).join('')||'<p class="m">Aucun produit. Le patron doit en ajouter.</p>')
- +'<h4>Ventes du jour</h4>'+ts.sort((a,b)=>(b.ts?.seconds||9e9)-(a.ts?.seconds||9e9)).map(s=>`<div class="row"><span>${N(s.qty)} × ${esc(s.name)}<br><small>${esc(s.pay||'Espèces')}</small></span><span>${F(s.total)} <button data-a="rec" data-id="${esc(s.id)}">Reçu</button>${S.role=='patron'?` <button class="x" data-a="delsale" data-id="${esc(s.id)}">✕</button>`:''}</span></div>`).join('')},
+vendre:()=>{const gs=groups(),tot=gs.reduce((t,[,g])=>t+sum(g,'total'),0);
+ return `<h3>Aujourd’hui : ${F(tot)}</h3>${alerte()}<small>Payé en :</small><select id="pm">${PM.map(x=>`<option${x==S.pay?' selected':''}>${x}</option>`).join('')}</select>${cartH()}${srch()}<div id="lst">${lv()}</div>`
+ +'<h4>Ventes du jour</h4>'+gs.map(([k,g])=>`<div class="row"><span>${g.map(s=>N(s.qty)+' × '+esc(s.name)).join('<br>')}<br><small>${esc(g[0].pay||'Espèces')}</small></span><span>${F(sum(g,'total'))} <button data-a="rec" data-id="${esc(k)}">Reçu</button>${S.role=='patron'?` <button class="x" data-a="delsale" data-id="${esc(k)}">✕</button>`:''}</span></div>`).join('')},
 produits:()=>alerte()+(S.role=='patron'?`<div class="card"><small>Type de commerce :</small><select id="ty">${Object.entries(T).map(([k,t])=>`<option value="${k}"${k==S.type?' selected':''}>${t.n}</option>`).join('')}</select><small>Suggestions (touchez pour remplir le nom) :</small><div class="bt" style="justify-content:flex-start;margin:6px 0">${T[S.type].p.map(x=>`<button data-a="sug" data-n="${esc(x)}">${esc(x)}</button>`).join('')}</div><input id="pn" placeholder="Nom du produit"><input id="pc" type="number" inputmode="numeric" placeholder="Prix d’achat par pièce (GNF)"><input id="pp" type="number" inputmode="numeric" placeholder="Prix de vente par pièce (GNF)"><input id="ps" type="number" inputmode="numeric" placeholder="Stock de départ (en pièces)"><input id="pk" type="number" inputmode="numeric" placeholder="Pièces par carton (facultatif)"><input id="pq" type="number" inputmode="numeric" placeholder="Prix de vente du carton (facultatif)"><button class="main" data-a="addp">Ajouter</button></div>`:'')
- +S.products.map(p=>`<div class="row">${pr(p)}${S.role=='patron'?`<div class="bt"><button data-a="stk" data-id="${esc(p.id)}">Stock</button><button data-a="prx" data-id="${esc(p.id)}">Modifier</button><button class="x" data-a="delp" data-id="${esc(p.id)}">✕</button></div>`:''}</div>`).join(''),
+ +srch()+`<div id="lst">${lp()}</div>`,
 achats:()=>{const fo=S.debts.filter(d=>d.kind=='supplier');return `<div class="card"><b>Fournisseurs : achat à crédit</b><input id="fn" placeholder="Nom du fournisseur"><input id="fa" type="number" inputmode="numeric" placeholder="Montant à payer (GNF)"><button class="main" data-a="addf">Ajouter</button></div><h4>Total à payer aux fournisseurs : ${F(fo.reduce((t,d)=>t+d.amount-d.paid,0))}</h4>`+(fo.map(rowD).join('')||'<p class="m">Aucune dette fournisseur.</p>')},
 depenses:()=>`<div class="card"><input id="el" placeholder="Libellé (ex : salaire de Fanta)"><input id="ea" type="number" inputmode="numeric" placeholder="Montant (GNF)"><select id="ec">${[...(T[S.type].e||E),CAT0,'Autre'].map(x=>`<option>${x}</option>`).join('')}</select><button class="main" data-a="adde">Enregistrer</button></div><h4>Total du mois : ${F(sum(S.exp,'amount'))}</h4>`
  +S.exp.sort((a,b)=>b.day>a.day?1:-1).map(e=>`<div class="row"><div><b>${esc(e.label)}</b><br><small>${esc(e.cat)} · ${esc(e.day)}</small></div><div>${F(e.amount)} <button class="x" data-a="dele" data-id="${esc(e.id)}">✕</button></div></div>`).join(''),
 dettes:()=>{const cl=S.debts.filter(d=>d.kind!='supplier');return `<div class="card"><input id="dn" placeholder="Nom du client"><input id="da" type="number" inputmode="numeric" placeholder="Montant dû (GNF)"><button class="main" data-a="addd">Ajouter la dette</button></div><h4>Total à recevoir : ${F(cl.reduce((t,d)=>t+d.amount-d.paid,0))}</h4>`+cl.map(rowD).join('')},
-bilan:()=>{const sv=sum(S.sales,'total'),cg=sum(S.sales,'cost'),ach=sum(S.exp.filter(e=>e.cat==CAT0),'amount'),dp=sum(S.exp,'amount')-ach,r=sv-cg-dp,days={},cats={},pays={};
- S.sales.forEach(s=>{days[s.day]=(days[s.day]||0)+s.total;const k=s.pay||'Espèces';pays[k]=(pays[k]||0)+s.total});S.exp.forEach(e=>{if(e.cat!=CAT0)cats[e.cat]=(cats[e.cat]||0)+e.amount});
- return `<input type="month" id="mo" value="${esc(S.month)}"><div class="card">Ventes<div class="big">${F(sv)}</div>Coût d’achat des produits vendus<div class="big">${F(cg)}</div>Marge<div class="big">${F(sv-cg)}</div>Dépenses (salaires inclus, hors achats)<div class="big">${F(dp)}</div>Résultat du mois<div class="big ${r<0?'neg':''}">${F(r)}</div><small>Achats de marchandise enregistrés : ${F(ach)}</small></div><h4>Ventes par mode de paiement</h4>`
+equipe:()=>`<div class="card"><b>Ajouter un employé</b><input id="te" type="email" placeholder="E-mail de l’employé" autocapitalize="none"><input id="tp" type="text" placeholder="Mot de passe (8 caractères minimum)" autocomplete="off"><select id="tr"><option value="vendeur">Vendeur (vend et suit le stock)</option><option value="comptable">Comptable (voit seulement le bilan)</option></select><button class="main" data-a="addteam">Créer le compte</button>${S.msg?`<p class="m">${esc(S.msg)}</p>`:''}</div><h4>Comptes de la boutique</h4>`
+ +S.team.map(t=>`<div class="row"><div><b>${esc(t.email||t.id)}</b><br><small>${esc(t.role)}</small></div>${t.id==auth.currentUser?.uid?'':`<button class="x" data-a="delteam" data-id="${esc(t.id)}">Retirer</button>`}</div>`).join(''),
+bilan:()=>{const sv=sum(S.bs,'total'),cg=sum(S.bs,'cost'),ach=sum(S.be.filter(e=>e.cat==CAT0),'amount'),dp=sum(S.be,'amount')-ach,r=sv-cg-dp,days={},cats={},pays={};
+ S.bs.forEach(s=>{days[s.day]=(days[s.day]||0)+s.total;const k=s.pay||'Espèces';pays[k]=(pays[k]||0)+s.total});S.be.forEach(e=>{if(e.cat!=CAT0)cats[e.cat]=(cats[e.cat]||0)+e.amount});
+ return `<input type="month" id="mo" value="${esc(S.month)}"><div class="bt" style="justify-content:flex-start"><button data-a="refb">Actualiser</button><button data-a="csv">Exporter (Excel)</button></div>${S.bl?'<p class="m">Chargement…</p>':''}<div class="card">Ventes<div class="big">${F(sv)}</div>Coût d’achat des produits vendus<div class="big">${F(cg)}</div>Marge<div class="big">${F(sv-cg)}</div>Dépenses (salaires inclus, hors achats)<div class="big">${F(dp)}</div>Résultat du mois<div class="big ${r<0?'neg':''}">${F(r)}</div><small>Achats de marchandise enregistrés : ${F(ach)}</small></div><h4>Ventes par mode de paiement</h4>`
  +(Object.entries(pays).map(([k,v])=>`<div class="row"><span>${esc(k)}</span><b>${F(v)}</b></div>`).join('')||'<p class="m">Aucune vente.</p>')
  +'<h4>Dépenses par catégorie</h4>'+(Object.entries(cats).map(([k,v])=>`<div class="row"><span>${esc(k)}</span><b>${F(v)}</b></div>`).join('')||'<p class="m">Aucune dépense.</p>')
  +'<h4>Ventes par jour</h4>'+(Object.keys(days).sort().reverse().map(k=>`<div class="row"><span>${esc(String(k).split('-').reverse().join('/'))}</span><b>${F(days[k])}</b></div>`).join('')||'<p class="m">Aucune vente.</p>')}};
 const v=id=>$('#'+id).value.trim(),P=id=>S.products.find(x=>x.id==id),D=()=>({day:today(),month:today().slice(0,7),by:auth.currentUser.uid}),
-sale=(p,n,total,name)=>{if(!ok())return;if(!(n>0))return;if(n>p.stock)return toast('Stock insuffisant');
- const w=writeBatch(db);w.set(doc(c('sales')),{pid:p.id,name,qty:n,total,cost:n*(p.cost||0),pay:S.pay,ts:serverTimestamp(),...D()});w.update(doc(c('products'),p.id),{stock:increment(-n)});go(w.commit());toast('Vendu : '+n+' × '+name)},
+addc=(p,n,carton)=>{if(!ok()||!p)return;const key=carton?p.id+'c':p.id,inc=carton?N(p.pack):n;if(!(inc>0))return;
+ const used=S.cart.filter(x=>x.pid==p.id).reduce((t,x)=>t+x.qty,0);if(used+inc>N(p.stock))return toast('Stock insuffisant');
+ const add=carton?N(p.packPrice):inc*N(p.price),l=S.cart.find(x=>x.key==key);
+ if(l){l.qty+=inc;l.total+=add;l.cost+=inc*(p.cost||0)}else S.cart.push({key,pid:p.id,name:carton?p.name+' (carton)':p.name,qty:inc,total:add,cost:inc*(p.cost||0)});draw()},
 g=(t,d)=>{const x=prompt(t,d);return x===null?null:(+x||0)},
 A={out:()=>signOut(auth),
-tab:b=>{S.tab=b.dataset.k;if(S.tab=='vendre'&&S.month!=today().slice(0,7)){S.month=today().slice(0,7);listen()}draw()},
-sell:b=>{if(!ok())return;const p=P(b.dataset.id),n=+b.dataset.n||+prompt('Quantité vendue ?');sale(p,n,n*p.price,p.name)},
-sellc:b=>{const p=P(b.dataset.id);sale(p,p.pack,p.packPrice,p.name+' (carton)')},
-rec:b=>{const s=S.sales.find(x=>x.id==b.dataset.id);wa(`*${S.info.name||'Ma Boutique'}*\nReçu du ${s.day.split('-').reverse().join('/')}\n${s.qty} × ${s.name}\nTotal : ${F(s.total)}\nPayé en : ${s.pay||'Espèces'}\nMerci de votre confiance !`)},
+showsu:()=>{$('#lf').style.display='none';$('#sf').style.display='block'},
+showli:()=>{$('#sf').style.display='none';$('#lf').style.display='block'},
+reset:async()=>{const em=$('#em').value.trim(),er=$('#err');if(!em)return er.textContent='Entrez d’abord votre e-mail ci-dessus';
+ try{await sendPasswordResetEmail(auth,em);er.textContent='';alert('Un e-mail a été envoyé à '+em+'.\nOuvrez-le (regardez aussi dans les spams) pour choisir un nouveau mot de passe.')}
+ catch(x){er.textContent=x.code=='auth/invalid-email'?'Adresse e-mail incorrecte':navigator.onLine?'Envoi impossible, réessayez':'Pas de connexion internet'}},
+tab:b=>{S.tab=b.dataset.k;S.q='';S.msg='';if(S.day!=today())listen();if(S.tab=='bilan')loadBilan();draw()},
+sell:b=>{addc(P(b.dataset.id),+b.dataset.n||+prompt('Quantité vendue ?'),0)},
+sellc:b=>addc(P(b.dataset.id),0,1),
+rmc:b=>{S.cart.splice(+b.dataset.i,1);draw()},
+clc:()=>{S.cart=[];draw()},
+vcart:()=>{if(!ok()||!S.cart.length)return;const inc={};S.cart.forEach(l=>inc[l.pid]=(inc[l.pid]||0)+l.qty);
+ for(const id in inc){if(!P(id)||inc[id]>N(P(id).stock))return toast('Stock insuffisant : '+(P(id)?.name||'produit'))}
+ const rid=Date.now().toString(36)+Math.random().toString(36).slice(2,5),w=writeBatch(db),t=sum(S.cart,'total');
+ S.cart.forEach(l=>w.set(doc(c('sales')),{rid,pid:l.pid,name:l.name,qty:l.qty,total:l.total,cost:l.cost,pay:S.pay,ts:serverTimestamp(),...D()}));
+ for(const id in inc)w.update(doc(c('products'),id),{stock:increment(-inc[id])});
+ go(w.commit());S.bt=0;S.cart=[];toast('Vente enregistrée : '+F(t));draw()},
+rec:b=>{const gr=S.sales.filter(x=>(x.rid||x.id)==b.dataset.id);if(!gr.length)return;
+ wa(`*${S.info.name||'Ma Boutique'}*\nReçu du ${gr[0].day.split('-').reverse().join('/')}\n`+gr.map(s=>`${s.qty} × ${s.name} : ${F(s.total)}`).join('\n')+`\nTotal : ${F(sum(gr,'total'))}\nPayé en : ${gr[0].pay||'Espèces'}\nMerci de votre confiance !`)},
 reap:()=>wa(`*Liste à racheter – ${S.info.name||'Ma Boutique'}*\n`+S.products.filter(low).map(p=>'- '+p.name+' (reste '+p.stock+')').join('\n')),
 sug:b=>{$('#pn').value=b.dataset.n;$('#pp').focus()},
-delsale:b=>{if(!ok()||!confirm('Annuler cette vente ?'))return;const s=S.sales.find(x=>x.id==b.dataset.id),w=writeBatch(db);w.delete(doc(c('sales'),s.id));if(P(s.pid))w.update(doc(c('products'),s.pid),{stock:increment(s.qty)});go(w.commit())},
+delsale:b=>{if(!ok()||!confirm('Annuler cette vente ?'))return;const gr=S.sales.filter(x=>(x.rid||x.id)==b.dataset.id),w=writeBatch(db);
+ gr.forEach(s=>{w.delete(doc(c('sales'),s.id));if(P(s.pid))w.update(doc(c('products'),s.pid),{stock:increment(s.qty)})});S.bt=0;go(w.commit())},
 addp:()=>{if(!ok())return;const n=v('pn'),p=+v('pp'),k=+v('pk')||0;if(!n||!(p>=0)||$('#pp').value==='')return toast('Nom et prix de vente obligatoires');
  go(addDoc(c('products'),{name:n,price:p,cost:+v('pc')||0,stock:+v('ps')||0,pack:k,packPrice:k>1?(+v('pq')||k*p):0,min:5}));clr()},
 stk:b=>{if(!ok())return;const n=+prompt('Quantité à ajouter en pièces (ex : 20) ou à retirer (ex : -5)');if(n)go(updateDoc(doc(c('products'),b.dataset.id),{stock:increment(n)}))},
@@ -140,15 +215,32 @@ prx:b=>{if(!ok())return;const p=P(b.dataset.id),a=g('Prix de vente par pièce (G
  const m=g('Alerte stock bas : à partir de combien de pièces ?',p.min??5);if(m===null)return;
  go(updateDoc(doc(c('products'),p.id),{price:a,cost:co,pack:k,packPrice:q,min:m}))},
 delp:b=>{if(ok()&&confirm('Supprimer ce produit ?'))go(deleteDoc(doc(c('products'),b.dataset.id)))},
-adde:()=>{if(!ok())return;const l=v('el'),a=+v('ea');if(!l||!(a>0))return toast('Libellé et montant obligatoires');go(addDoc(c('expenses'),{label:l,amount:a,cat:v('ec'),...D()}));clr()},
-dele:b=>{if(ok()&&confirm('Supprimer cette dépense ?'))go(deleteDoc(doc(c('expenses'),b.dataset.id)))},
+adde:()=>{if(!ok())return;const l=v('el'),a=+v('ea');if(!l||!(a>0))return toast('Libellé et montant obligatoires');go(addDoc(c('expenses'),{label:l,amount:a,cat:v('ec'),...D()}));S.bt=0;clr()},
+dele:b=>{if(ok()&&confirm('Supprimer cette dépense ?')){S.bt=0;go(deleteDoc(doc(c('expenses'),b.dataset.id)))}},
 addd:()=>{if(!ok())return;const n=v('dn'),a=+v('da');if(!n||!(a>0))return toast('Nom et montant obligatoires');go(addDoc(c('debts'),{name:n,amount:a,paid:0,day:today()}));clr()},
 addf:()=>{if(!ok())return;const n=v('fn'),a=+v('fa');if(!n||!(a>0))return toast('Fournisseur et montant obligatoires');go(addDoc(c('debts'),{name:n,amount:a,paid:0,day:today(),kind:'supplier'}));clr()},
 payd:b=>{if(!ok())return;const n=+prompt('Montant payé (GNF)');if(n>0)go(updateDoc(doc(c('debts'),b.dataset.id),{paid:increment(n)}))},
-deld:b=>{if(ok()&&confirm('Supprimer cette ligne ?'))go(deleteDoc(doc(c('debts'),b.dataset.id)))}};
+deld:b=>{if(ok()&&confirm('Supprimer cette ligne ?'))go(deleteDoc(doc(c('debts'),b.dataset.id)))},
+addteam:async()=>{if(!ok())return;const em=v('te'),pw=$('#tp').value,role=$('#tr').value;
+ if(!em||pw.length<8)return toast('E-mail et mot de passe (8 caractères minimum)');
+ if(S.team.length>=10)return toast('Maximum 10 comptes');
+ try{const cr=await createUserWithEmailAndPassword(secAuth,em,pw);
+  await setDoc(doc(c('members'),cr.user.uid),{role,email:em});
+  await setDoc(doc(db,'users',cr.user.uid),{shop:S.shop}).catch(()=>{});
+  await signOut(secAuth);clr();
+  S.msg='Compte créé. À donner à l’employé : e-mail '+em+', mot de passe '+pw+'. Il se connecte sans code de boutique.';draw()
+ }catch(e){toast(e.code=='auth/email-already-in-use'?'Cette adresse existe déjà':'Refusé : '+(e.code||e.message))}},
+delteam:b=>{if(ok()&&confirm('Retirer l’accès de cet employé ?'))go(deleteDoc(doc(c('members'),b.dataset.id)))},
+refb:()=>loadBilan(1),
+csv:()=>{const q=x=>typeof x=='number'?x:'"'+String(x??'').replace(/"/g,'""')+'"',rows=[['Type','Date','Libellé','Quantité','Montant (GNF)','Paiement / Catégorie']];
+ S.bs.slice().sort((a,b)=>a.day>b.day?1:-1).forEach(s=>rows.push(['Vente',s.day,s.name,N(s.qty),N(s.total),s.pay||'Espèces']));
+ S.be.slice().sort((a,b)=>a.day>b.day?1:-1).forEach(e=>rows.push(['Dépense',e.day,e.label,'',N(e.amount),e.cat]));
+ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+rows.map(r=>r.map(q).join(';')).join('\r\n')],{type:'text/csv;charset=utf-8'}));
+ a.download='bilan-'+S.month+'.csv';document.body.appendChild(a);a.click();a.remove()}};
 document.addEventListener('click',e=>{const b=e.target.closest('button[data-a]');if(b&&A[b.dataset.a])A[b.dataset.a](b)});
+document.addEventListener('input',e=>{if(e.target.id=='q'){S.q=e.target.value;const l=$('#lst');if(l)l.innerHTML=S.tab=='vendre'?lv():lp()}});
 document.addEventListener('change',e=>{const i=e.target.id;
- if(i=='mo'&&e.target.value){S.month=e.target.value;e.target.blur();listen()}
+ if(i=='mo'&&e.target.value){S.month=e.target.value;e.target.blur();loadBilan(1)}
  if(i=='pm'){S.pay=e.target.value;e.target.blur();draw()}
  if(i=='ty'){S.type=e.target.value;store.set('type_'+S.shop,S.type);e.target.blur();draw()}});
 show('login');
