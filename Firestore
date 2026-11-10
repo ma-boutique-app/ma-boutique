@@ -40,6 +40,15 @@ service cloud.firestore {
         && (request.auth.uid == uid || hasRole(request.resource.data.shop, ['patron']));
     }
 
+    // Numéro de téléphone -> e-mail de secours (pour se connecter et récupérer le compte)
+    match /phones/{p} {
+      allow get: if true;
+      allow create: if signedIn()
+        && p.matches('[0-9]{12}')
+        && request.resource.data.keys().hasOnly(['email'])
+        && request.resource.data.email == request.auth.token.email;
+    }
+
     match /shops/{shop} {
       allow read: if admin() || isMember(shop);
 
