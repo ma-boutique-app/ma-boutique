@@ -6,7 +6,6 @@ service cloud.firestore {
     function admin() { return signedIn() && request.auth.uid == 'PQ15rICcjFSALPRUsWQxaVxuXFH3'; }
     function shopDoc(s) { return /databases/$(database)/documents/shops/$(s); }
     function memberDoc(s) { return /databases/$(database)/documents/shops/$(s)/members/$(request.auth.uid); }
-    function userDoc(u) { return /databases/$(database)/documents/users/$(u); }
     function isMember(s) { return signedIn() && exists(memberDoc(s)); }
     function hasRole(s, roles) { return isMember(s) && get(memberDoc(s)).data.role in roles; }
     function active(s) {
@@ -20,7 +19,6 @@ service cloud.firestore {
       allow create, update: if signedIn()
         && request.resource.data.keys().hasOnly(['shop'])
         && request.resource.data.shop is string
-        && existsAfter(/databases/$(database)/documents/shops/$(request.resource.data.shop)/members/$(uid))
         && (request.auth.uid == uid || hasRole(request.resource.data.shop, ['patron']));
     }
 
@@ -50,10 +48,8 @@ service cloud.firestore {
         && request.resource.data.name.size() <= 60
         && request.resource.data.ownerEmail is string
         && request.resource.data.accessUntil is timestamp
-        && request.resource.data.accessUntil <= request.time + duration.value(72, 'h')
-        && shop.matches('[a-z0-9-]{3,30}')
-        && !exists(userDoc(request.auth.uid))
-        && getAfter(userDoc(request.auth.uid)).data.shop == shop;
+        && request.resource.data.accessUntil <= request.time + duration.value(7, 'd')
+        && shop.matches('[a-z0-9-]{3,30}');
 
       match /members/{uid} {
         allow read: if admin() || (signedIn() && request.auth.uid == uid) || hasRole(shop, ['patron']);
