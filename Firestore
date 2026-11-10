@@ -14,22 +14,6 @@ service cloud.firestore {
       return d.get('blocked', false) == false && d.accessUntil > request.time;
     }
 
-    // Un changement de stock n'est accepté que s'il est écrit dans l'historique
-    // (stockLogs) dans le MÊME batch, signé par celui qui le fait.
-    function stockLogged(s, productId) {
-      let n = request.resource.data;
-      let o = resource.data;
-      return n.stock == o.stock || (
-        n.lastLog is string
-        && existsAfter(/databases/$(database)/documents/shops/$(s)/stockLogs/$(n.lastLog))
-        && getAfter(/databases/$(database)/documents/shops/$(s)/stockLogs/$(n.lastLog)).data.product == productId
-        && getAfter(/databases/$(database)/documents/shops/$(s)/stockLogs/$(n.lastLog)).data.old == o.stock
-        && getAfter(/databases/$(database)/documents/shops/$(s)/stockLogs/$(n.lastLog)).data.new == n.stock
-        && getAfter(/databases/$(database)/documents/shops/$(s)/stockLogs/$(n.lastLog)).data.by == request.auth.uid
-      );
-    }
-
-    // Lien compte -> boutique : permet de se connecter sans code.
     match /users/{uid} {
       allow read: if admin() || (signedIn() && request.auth.uid == uid);
       allow write: if admin();
@@ -40,7 +24,6 @@ service cloud.firestore {
         && (request.auth.uid == uid || hasRole(request.resource.data.shop, ['patron']));
     }
 
-    // Numéro de téléphone -> e-mail de secours (pour se connecter et récupérer le compte)
     match /phones/{p} {
       allow get: if true;
       allow create: if signedIn()
@@ -51,15 +34,12 @@ service cloud.firestore {
 
     match /shops/{shop} {
       allow read: if admin() || isMember(shop);
-
-      // L'administrateur (toi) peut tout faire
       allow write: if admin();
 
-      // Inscription : essai gratuit 48 h (72 h de marge), une seule boutique d'essai par compte.
+      // Inscription autonome : essai gratuit 48 h
       allow create: if signedIn()
-        && request.resource.data.keys().hasOnly(['name','type','plan','blocked','trial','ownerUid','ownerEmail','accessUntil','payMethod'])
-        && request.resource.data.keys().hasAll(['name','type','plan','blocked','trial','ownerUid','ownerEmail','accessUntil','payMethod'])
-        && request.resource.data.payMethod in ['orange_money','mtn_momo','cash','virement']
+        && request.resource.data.keys().hasOnly(['name','type','plan','blocked','trial','ownerUid','ownerEmail','accessUntil'])
+        && request.resource.data.keys().hasAll(['name','type','plan','blocked','trial','ownerUid','ownerEmail','accessUntil'])
         && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.plan == 'complet'
         && request.resource.data.blocked == false
@@ -81,7 +61,6 @@ service cloud.firestore {
         allow create: if hasRole(shop, ['patron']) && active(shop)
           && request.resource.data.keys().hasOnly(['role','email'])
           && request.resource.data.role in ['vendeur','comptable'];
-        // Retirer un employé : possible, mais ses ventes restent (champ "by" = son uid)
         allow delete: if hasRole(shop, ['patron']) && uid != request.auth.uid;
         allow create: if signedIn()
           && request.auth.uid == uid
@@ -93,51 +72,22 @@ service cloud.firestore {
       match /products/{id} {
         allow read: if admin() || hasRole(shop, ['patron','vendeur']);
         allow create, delete: if hasRole(shop, ['patron']) && active(shop);
-        // Patron : tout modifier, mais tout changement de stock est tracé.
-        // Vendeur : uniquement diminuer le stock (et écrire sa trace).
-        allow update: if active(shop) && stockLogged(shop, id) && (
+        allow update: if active(shop) && (
           hasRole(shop, ['patron']) ||
           (hasRole(shop, ['vendeur'])
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock','lastLog'])
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock'])
             && request.resource.data.stock is number
             && request.resource.data.stock >= 0
             && request.resource.data.stock <= resource.data.stock)
         );
       }
 
-      // Historique des mouvements de stock : on ajoute, on ne modifie JAMAIS, on ne supprime JAMAIS.
-      // Document attendu : { product, old, new, by, at }
-      match /stockLogs/{id} {
-        allow read: if admin() || hasRole(shop, ['patron','vendeur','comptable']);
-        allow create: if hasRole(shop, ['patron','vendeur']) && active(shop)
-          && request.resource.data.keys().hasOnly(['product','old','new','by','at'])
-          && request.resource.data.by == request.auth.uid
-          && request.resource.data.at == request.time
-          && request.resource.data.old is number
-          && request.resource.data.new is number;
-        allow update, delete: if false;
-      }
-
-      // Ventes : signées par leur auteur, IMMUABLES. Personne (même le patron) ne peut les modifier ni les effacer.
       match /sales/{id} {
         allow read: if admin() || hasRole(shop, ['patron','vendeur','comptable']);
         allow create: if hasRole(shop, ['patron','vendeur']) && active(shop)
           && request.resource.data.by == request.auth.uid;
-        allow update, delete: if false;
-      }
-
-      // Annulation d'une vente : on n'efface rien, on ajoute une trace signée par le patron.
-      // Document attendu : { sale, reason, by, at }
-      match /voids/{id} {
-        allow read: if admin() || hasRole(shop, ['patron','vendeur','comptable']);
-        allow create: if hasRole(shop, ['patron']) && active(shop)
-          && request.resource.data.keys().hasOnly(['sale','reason','by','at'])
-          && request.resource.data.by == request.auth.uid
-          && request.resource.data.at == request.time
-          && request.resource.data.reason is string
-          && request.resource.data.reason.size() > 0
-          && exists(/databases/$(database)/documents/shops/$(shop)/sales/$(request.resource.data.sale));
-        allow update, delete: if false;
+        allow delete: if hasRole(shop, ['patron']) && active(shop);
+        allow update: if false;
       }
 
       match /expenses/{id} {
@@ -145,14 +95,12 @@ service cloud.firestore {
         allow create, update, delete: if hasRole(shop, ['patron']) && active(shop);
       }
 
-      // Dettes : le patron et le vendeur peuvent les créer / mettre à jour, mais personne ne peut les effacer.
       match /debts/{id} {
         allow read: if admin() || hasRole(shop, ['patron','vendeur']);
         allow create, update: if hasRole(shop, ['patron','vendeur']) && active(shop);
-        allow delete: if false;
+        allow delete: if hasRole(shop, ['patron']) && active(shop);
       }
 
-      // Tout le reste : administrateur seulement
       match /{other=**} {
         allow read, write: if admin();
       }
