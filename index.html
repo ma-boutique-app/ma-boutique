@@ -55,7 +55,7 @@ small,.m{color:var(--m)}
 import {initializeApp} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
 import {getAuth,signInWithEmailAndPassword,createUserWithEmailAndPassword,sendPasswordResetEmail,deleteUser,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
 import {initializeFirestore,persistentLocalCache,doc,getDoc,getDocs,setDoc,collection,addDoc,updateDoc,deleteDoc,onSnapshot,query,where,writeBatch,increment,serverTimestamp,Timestamp} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
-// >>> METS ICI TON NUMÉRO Orange Money / MTN MoMo (affiché quand l'abonnement est terminé)
+// >>> Numéro Orange Money / MTN MoMo (affiché quand l'abonnement est terminé)
 const PAY='+224620838480/+224662494554'
 const PM=['Espèces','Orange Money','MTN MoMo'],CAT0='Achat de marchandise',
 E=['Salaire','Loyer','Électricité','Transport'],
@@ -91,23 +91,25 @@ $('#lf').onsubmit=async e=>{e.preventDefault();$('#err').textContent='';
  const code=norm($('#code').value);$('#code').value=code;store.set('code',code);
  try{await signInWithEmailAndPassword(auth,$('#em').value.trim(),$('#pw').value)}catch(x){$('#err').textContent=navigator.onLine?'E-mail ou mot de passe incorrect':'Pas de connexion internet'}};
 // Inscription : le commerçant crée son compte, sa boutique et son essai gratuit de 48 h
+// Les 3 écritures (boutique, patron, lien compte) partent ensemble dans UN SEUL lot, comme l'exigent les règles.
 $('#sf').onsubmit=async e=>{e.preventDefault();const er=$('#serr');er.textContent='';
  const name=$('#sn').value.trim(),ty=$('#st').value,em=$('#se').value.trim(),pw=$('#sp').value;
  if(!name)return er.textContent='Le nom de la boutique est obligatoire';
  if(pw.length<8)return er.textContent='Mot de passe : 8 caractères minimum';
- S.busy=1;let u,code,done=0;
+ S.busy=1;let u;
  try{u=(await createUserWithEmailAndPassword(auth,em,pw)).user;
   const base=name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,20).replace(/-+$/,'')||'boutique';
-  for(let i=0;i<4&&!done;i++){code=base+'-'+Math.random().toString(36).slice(2,6);
-   try{await setDoc(doc(db,'shops',code),{name,type:ty,plan:'complet',blocked:false,trial:true,ownerUid:u.uid,ownerEmail:em,accessUntil:Timestamp.fromMillis(Date.now()+48*36e5)});done=1}catch(x){}}
-  if(!done)throw {code:'shop'};
-  await setDoc(doc(db,'shops',code,'members',u.uid),{role:'patron',email:em});
-  await setDoc(doc(db,'users',u.uid),{shop:code}).catch(()=>{});
+  const code=base+'-'+Math.random().toString(36).slice(2,6).padEnd(4,'x');
+  const w=writeBatch(db);
+  w.set(doc(db,'shops',code),{name,type:ty,plan:'complet',blocked:false,trial:true,ownerUid:u.uid,ownerEmail:em,accessUntil:Timestamp.fromMillis(Date.now()+48*36e5)});
+  w.set(doc(db,'shops',code,'members',u.uid),{role:'patron',email:em});
+  w.set(doc(db,'users',u.uid),{shop:code});
+  await w.commit();
   store.set('code',code);$('#code').value=code;S.busy=0;
   alert('Boutique créée !\n\nVotre code de boutique : '+code+'\nNotez-le au cas où.\n\nEssai gratuit : 48 heures.');
   start(u)
  }catch(x){S.busy=0;if(u)try{await deleteUser(u)}catch(y){await signOut(auth)}
-  er.textContent=x.code=='auth/email-already-in-use'?'Cette adresse existe déjà. Connectez-vous.':x.code=='auth/weak-password'?'Mot de passe trop faible':x.code=='auth/invalid-email'?'Adresse e-mail incorrecte':navigator.onLine?'Création impossible, réessayez':'Pas de connexion internet'}};
+  er.textContent=x.code=='auth/email-already-in-use'?'Cette adresse existe déjà. Connectez-vous.':x.code=='auth/weak-password'?'Mot de passe trop faible':x.code=='auth/invalid-email'?'Adresse e-mail incorrecte':navigator.onLine?'Création impossible ('+(x.code||x.message)+')':'Pas de connexion internet'}};
 onAuthStateChanged(auth,u=>{if(u){if(S.busy)return;return start(u)}
  S.u.forEach(f=>f());S.u=[];S.role=null;S.products=[];S.sales=[];S.exp=[];S.debts=[];S.team=[];S.bs=[];S.be=[];S.cart=[];S.bk=null;show('login')});
 async function start(u){
