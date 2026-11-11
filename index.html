@@ -29,17 +29,16 @@ small,.m{color:var(--m)}
 <div id="login">
 <h2>Ma Boutique</h2>
 <form id="lf">
-<input id="code" placeholder="Code de la boutique (si demandé)" autocapitalize="none" autocomplete="off">
 <input id="em" type="email" placeholder="E-mail" autocomplete="username" required>
 <input id="pw" type="password" placeholder="Mot de passe" autocomplete="current-password" required>
 <button class="main">Se connecter</button>
 <p id="err" class="neg"></p>
 <button type="button" class="lnk" data-a="reset">Mot de passe oublié ?</button>
-<button type="button" class="lnk" data-a="showsu">Pas encore de compte ? Essai gratuit 48 h</button>
+<button type="button" class="lnk" data-a="showsu">Pas encore de compte ? Essai gratuit 7 jours</button>
 </form>
 <form id="sf" style="display:none">
 <h3>Créer ma boutique</h3>
-<p class="m">48 heures d’essai gratuit, sans paiement.</p>
+<p class="m">7 jours d’essai gratuit, sans paiement.</p>
 <input id="sn" placeholder="Nom de la boutique" maxlength="60" required>
 <select id="st"></select>
 <input id="se" type="email" placeholder="Votre e-mail" autocomplete="username" required>
@@ -74,7 +73,6 @@ today=()=>new Date().toLocaleDateString('sv'),sum=(a,k)=>a.reduce((t,x)=>t+(+x[k
 fold=s=>String(s??'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''),
 c=n=>collection(db,'shops',S.shop,n),
 store={get:k=>{try{return localStorage.getItem(k)}catch(e){}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}},
-// Accepte "boutique-test" mais aussi "Boutique test (boutique-test)" : on garde le code seul, en minuscules
 norm=s=>{s=String(s||'').trim();const m=s.match(/\(([^)]+)\)\s*$/);return (m?m[1]:s).trim().toLowerCase()},
 S={tab:'',month:today().slice(0,7),products:[],sales:[],exp:[],debts:[],team:[],bs:[],be:[],cart:[],u:[],pay:'Espèces',type:'boutique',q:'',msg:'',bt:0};
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
@@ -85,13 +83,9 @@ ok=()=>S.rw||(toast(S.info?.trial?'Essai terminé : lecture seule':'Abonnement t
 wa=t=>open('https://wa.me/?text='+encodeURIComponent(t)),
 clr=()=>document.querySelectorAll('#main .card input').forEach(i=>{i.value='';i.blur()});
 function show(v){$('#login').style.display=v=='login'?'block':'none';$('#app').style.display=v=='app'?'block':'none';$('#nav').style.display=v=='app'?'flex':'none'}
-$('#code').value=store.get('code')||'';
 $('#st').innerHTML=Object.entries(T).map(([k,t])=>`<option value="${k}">${t.n}</option>`).join('');
 $('#lf').onsubmit=async e=>{e.preventDefault();$('#err').textContent='';
- const code=norm($('#code').value);$('#code').value=code;store.set('code',code);
  try{await signInWithEmailAndPassword(auth,$('#em').value.trim(),$('#pw').value)}catch(x){$('#err').textContent=navigator.onLine?'E-mail ou mot de passe incorrect':'Pas de connexion internet'}};
-// Inscription : le commerçant crée son compte, sa boutique et son essai gratuit de 48 h
-// Les 3 écritures (boutique, patron, lien compte) partent ensemble dans UN SEUL lot, comme l'exigent les règles.
 $('#sf').onsubmit=async e=>{e.preventDefault();const er=$('#serr');er.textContent='';
  const name=$('#sn').value.trim(),ty=$('#st').value,em=$('#se').value.trim(),pw=$('#sp').value;
  if(!name)return er.textContent='Le nom de la boutique est obligatoire';
@@ -101,12 +95,12 @@ $('#sf').onsubmit=async e=>{e.preventDefault();const er=$('#serr');er.textConten
   const base=name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,20).replace(/-+$/,'')||'boutique';
   const code=base+'-'+Math.random().toString(36).slice(2,6).padEnd(4,'x');
   const w=writeBatch(db);
-  w.set(doc(db,'shops',code),{name,type:ty,plan:'complet',blocked:false,trial:true,ownerUid:u.uid,ownerEmail:em,accessUntil:Timestamp.fromMillis(Date.now()+48*36e5)});
+  w.set(doc(db,'shops',code),{name,type:ty,plan:'complet',blocked:false,trial:true,ownerUid:u.uid,ownerEmail:em,accessUntil:Timestamp.fromMillis(Date.now()+7*864e5)});
   w.set(doc(db,'shops',code,'members',u.uid),{role:'patron',email:em});
   w.set(doc(db,'users',u.uid),{shop:code});
   await w.commit();
-  store.set('code',code);$('#code').value=code;S.busy=0;
-  alert('Boutique créée !\n\nVotre code de boutique : '+code+'\nNotez-le au cas où.\n\nEssai gratuit : 48 heures.');
+  store.set('code',code);S.busy=0;
+  alert('Boutique créée !\n\nEssai gratuit : 7 jours.');
   start(u)
  }catch(x){S.busy=0;if(u)try{await deleteUser(u)}catch(y){await signOut(auth)}
   er.textContent=x.code=='auth/email-already-in-use'?'Cette adresse existe déjà. Connectez-vous.':x.code=='auth/weak-password'?'Mot de passe trop faible':x.code=='auth/invalid-email'?'Adresse e-mail incorrecte':navigator.onLine?'Création impossible ('+(x.code||x.message)+')':'Pas de connexion internet'}};
@@ -128,9 +122,8 @@ async function start(u){
   S.type=T[S.info.type]?S.info.type:(T[store.get('type_'+code)]?store.get('type_'+code):'boutique');
   S.rw=!S.info.blocked&&S.info.accessUntil?.toMillis()>Date.now();
   S.tab=S.role=='comptable'?'bilan':'vendre';listen();show('app');if(S.tab=='bilan')loadBilan()
- }catch(x){if(x===0||x?.code=='permission-denied'){$('#err').textContent='Compte introuvable. Entrez le code de votre boutique ci-dessus.';signOut(auth)}
+ }catch(x){if(x===0||x?.code=='permission-denied'){$('#err').textContent='Aucune boutique liée à ce compte. Contactez l’administrateur.';signOut(auth)}
   else{$('#err').textContent='Pas de connexion : connectez-vous une première fois avec internet';show('login')}}}
-// Lectures réduites : ventes du jour seulement ; le bilan du mois est chargé à la demande
 function listen(){S.u.forEach(f=>f());S.u=[];const r=S.role,
  L=(q,k)=>S.u.push(onSnapshot(q,s=>{S[k]=s.docs.map(d=>({id:d.id,...d.data()}));draw()},()=>toast('Lecture refusée')));
  S.day=today();
