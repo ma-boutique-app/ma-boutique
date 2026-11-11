@@ -22,19 +22,11 @@ service cloud.firestore {
         && (request.auth.uid == uid || hasRole(request.resource.data.shop, ['patron']));
     }
 
-    match /phones/{p} {
-      allow get: if true;
-      allow create: if signedIn()
-        && p.matches('[0-9]{12}')
-        && request.resource.data.keys().hasOnly(['email'])
-        && request.resource.data.email == request.auth.token.email;
-    }
-
     match /shops/{shop} {
       allow read: if admin() || isMember(shop);
       allow write: if admin();
 
-      // Inscription autonome : essai gratuit 48 h
+      // Inscription autonome : essai gratuit 7 jours
       allow create: if signedIn()
         && request.resource.data.keys().hasOnly(['name','type','plan','blocked','trial','ownerUid','ownerEmail','accessUntil'])
         && request.resource.data.keys().hasAll(['name','type','plan','blocked','trial','ownerUid','ownerEmail','accessUntil'])
@@ -48,7 +40,7 @@ service cloud.firestore {
         && request.resource.data.name.size() <= 60
         && request.resource.data.ownerEmail is string
         && request.resource.data.accessUntil is timestamp
-        && request.resource.data.accessUntil <= request.time + duration.value(7, 'd')
+        && request.resource.data.accessUntil <= request.time + duration.value(8, 'd')
         && shop.matches('[a-z0-9-]{3,30}');
 
       match /members/{uid} {
