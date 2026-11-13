@@ -11,6 +11,7 @@ body{margin:0;font:16px/1.4 system-ui,sans-serif;background:var(--bg);color:var(
 input,select{width:100%;padding:12px;margin:5px 0;border:1px solid var(--b);border-radius:10px;background:var(--c);color:var(--t);font:inherit}
 button{font:inherit;padding:10px 14px;border:1px solid var(--b);border-radius:10px;background:var(--c);color:var(--t)}
 button.main{background:var(--p);color:#fff;border:0;width:100%;margin-top:6px}
+button.main:disabled{opacity:.6}
 button.x{color:var(--r)}
 button.lnk{width:100%;margin-top:10px;background:none;border:0;color:var(--p);font-weight:600}
 .row{display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--c);border:1px solid var(--b);border-radius:12px;padding:10px 12px;margin:7px 0}
@@ -43,7 +44,7 @@ small,.m{color:var(--m)}
 <select id="st"></select>
 <input id="se" type="email" placeholder="Votre e-mail" autocomplete="username" required>
 <input id="sp" type="password" placeholder="Mot de passe (8 caractères minimum)" autocomplete="new-password" minlength="8" required>
-<button class="main">Commencer l’essai gratuit</button>
+<button class="main" id="sb">Commencer l’essai gratuit</button>
 <p id="serr" class="neg"></p>
 <button type="button" class="lnk" data-a="showli">J’ai déjà un compte</button>
 </form>
@@ -86,12 +87,19 @@ function show(v){$('#login').style.display=v=='login'?'block':'none';$('#app').s
 $('#st').innerHTML=Object.entries(T).map(([k,t])=>`<option value="${k}">${t.n}</option>`).join('');
 $('#lf').onsubmit=async e=>{e.preventDefault();$('#err').textContent='';
  try{await signInWithEmailAndPassword(auth,$('#em').value.trim(),$('#pw').value)}catch(x){$('#err').textContent=navigator.onLine?'E-mail ou mot de passe incorrect':'Pas de connexion internet'}};
-$('#sf').onsubmit=async e=>{e.preventDefault();const er=$('#serr');er.textContent='';
+$('#sf').onsubmit=async e=>{e.preventDefault();const er=$('#serr'),bt=$('#sb');er.textContent='';
  const name=$('#sn').value.trim(),ty=$('#st').value,em=$('#se').value.trim(),pw=$('#sp').value;
  if(!name)return er.textContent='Le nom de la boutique est obligatoire';
  if(pw.length<8)return er.textContent='Mot de passe : 8 caractères minimum';
- S.busy=1;let u;
- try{u=(await createUserWithEmailAndPassword(auth,em,pw)).user;
+ if(!navigator.onLine)return er.textContent='Pas de connexion internet';
+ S.busy=1;bt.disabled=true;let u,fresh=false;
+ try{
+  try{u=(await createUserWithEmailAndPassword(auth,em,pw)).user;fresh=true}
+  catch(x){
+   if(x.code!='auth/email-already-in-use')throw x;
+   try{u=(await signInWithEmailAndPassword(auth,em,pw)).user}catch(y){throw {code:'exists'}}
+   const us=await getDoc(doc(db,'users',u.uid)).catch(()=>null);
+   if(us?.exists()){S.busy=0;bt.disabled=false;return start(u)}}
   const base=name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,20).replace(/-+$/,'')||'boutique';
   const code=base+'-'+Math.random().toString(36).slice(2,6).padEnd(4,'x');
   const w=writeBatch(db);
@@ -99,11 +107,18 @@ $('#sf').onsubmit=async e=>{e.preventDefault();const er=$('#serr');er.textConten
   w.set(doc(db,'shops',code,'members',u.uid),{role:'patron',email:em});
   w.set(doc(db,'users',u.uid),{shop:code});
   await w.commit();
-  store.set('code',code);S.busy=0;
+  store.set('code',code);S.busy=0;bt.disabled=false;
   alert('Boutique créée !\n\nEssai gratuit : 7 jours.');
   start(u)
- }catch(x){S.busy=0;if(u)try{await deleteUser(u)}catch(y){await signOut(auth)}
-  er.textContent=x.code=='auth/email-already-in-use'?'Cette adresse existe déjà. Connectez-vous.':x.code=='auth/weak-password'?'Mot de passe trop faible':x.code=='auth/invalid-email'?'Adresse e-mail incorrecte':navigator.onLine?'Création impossible ('+(x.code||x.message)+')':'Pas de connexion internet'}};
+ }catch(x){
+  if(u){if(fresh){try{await deleteUser(u)}catch(y){await signOut(auth)}}else await signOut(auth)}
+  S.busy=0;bt.disabled=false;const k=x.code||x.message;
+  er.textContent=k=='exists'||k=='auth/email-already-in-use'?'Cette adresse existe déjà. Connectez-vous, ou utilisez « Mot de passe oublié ».'
+   :k=='auth/weak-password'?'Mot de passe trop faible'
+   :k=='auth/invalid-email'?'Adresse e-mail incorrecte'
+   :k=='auth/network-request-failed'||!navigator.onLine?'Pas de connexion internet'
+   :k=='permission-denied'?'Création refusée. Vérifiez la date et l’heure de votre téléphone (mode automatique), puis réessayez.'
+   :'Création impossible ('+k+')'}};
 onAuthStateChanged(auth,u=>{if(u){if(S.busy)return;return start(u)}
  S.u.forEach(f=>f());S.u=[];S.role=null;S.products=[];S.sales=[];S.exp=[];S.debts=[];S.team=[];S.bs=[];S.be=[];S.cart=[];S.bk=null;show('login')});
 async function start(u){
