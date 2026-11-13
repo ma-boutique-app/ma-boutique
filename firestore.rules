@@ -26,7 +26,6 @@ service cloud.firestore {
       allow read: if admin() || isMember(shop);
       allow write: if admin();
 
-      // Inscription autonome : essai gratuit 7 jours
       allow create: if signedIn()
         && request.resource.data.keys().hasOnly(['name','type','plan','blocked','trial','ownerUid','ownerEmail','accessUntil'])
         && request.resource.data.keys().hasAll(['name','type','plan','blocked','trial','ownerUid','ownerEmail','accessUntil'])
@@ -40,7 +39,7 @@ service cloud.firestore {
         && request.resource.data.name.size() <= 60
         && request.resource.data.ownerEmail is string
         && request.resource.data.accessUntil is timestamp
-        && request.resource.data.accessUntil <= request.time + duration.value(8, 'd')
+        && request.resource.data.accessUntil <= request.time + duration.value(10, 'd')
         && shop.matches('[a-z0-9-]{3,30}');
 
       match /members/{uid} {
@@ -85,7 +84,16 @@ service cloud.firestore {
 
       match /debts/{id} {
         allow read: if admin() || hasRole(shop, ['patron','vendeur']);
-        allow create, update: if hasRole(shop, ['patron','vendeur']) && active(shop);
+        allow create: if active(shop) && (
+          hasRole(shop, ['patron']) ||
+          (hasRole(shop, ['vendeur']) && request.resource.data.paid == 0)
+        );
+        allow update: if active(shop) && (
+          hasRole(shop, ['patron']) ||
+          (hasRole(shop, ['vendeur'])
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paid'])
+            && request.resource.data.paid >= resource.data.paid)
+        );
         allow delete: if hasRole(shop, ['patron']) && active(shop);
       }
 
