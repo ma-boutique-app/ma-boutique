@@ -92,21 +92,23 @@ $('#sf').onsubmit=async e=>{e.preventDefault();const er=$('#serr'),bt=$('#sb');e
  if(!name)return er.textContent='Le nom de la boutique est obligatoire';
  if(pw.length<8)return er.textContent='Mot de passe : 8 caractères minimum';
  if(!navigator.onLine)return er.textContent='Pas de connexion internet';
- S.busy=1;bt.disabled=true;let u,fresh=false;
+ S.busy=1;bt.disabled=true;let u,fresh=false,step='compte e-mail';
  try{
   try{u=(await createUserWithEmailAndPassword(auth,em,pw)).user;fresh=true}
   catch(x){
    if(x.code!='auth/email-already-in-use')throw x;
    try{u=(await signInWithEmailAndPassword(auth,em,pw)).user}catch(y){throw {code:'exists'}}
+   step='lecture du compte';
    const us=await getDoc(doc(db,'users',u.uid)).catch(()=>null);
    if(us?.exists()){S.busy=0;bt.disabled=false;return start(u)}}
   const base=name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,20).replace(/-+$/,'')||'boutique';
   const code=base+'-'+Math.random().toString(36).slice(2,6).padEnd(4,'x');
-  const w=writeBatch(db);
-  w.set(doc(db,'shops',code),{name,type:ty,plan:'complet',blocked:false,trial:true,ownerUid:u.uid,ownerEmail:em,accessUntil:Timestamp.fromMillis(Date.now()+7*864e5)});
-  w.set(doc(db,'shops',code,'members',u.uid),{role:'patron',email:em});
-  w.set(doc(db,'users',u.uid),{shop:code});
-  await w.commit();
+  step='boutique';
+  await setDoc(doc(db,'shops',code),{name,type:ty,plan:'complet',blocked:false,trial:true,ownerUid:u.uid,ownerEmail:em,accessUntil:Timestamp.fromMillis(Date.now()+7*864e5)});
+  step='membre';
+  await setDoc(doc(db,'shops',code,'members',u.uid),{role:'patron',email:em});
+  step='compte';
+  await setDoc(doc(db,'users',u.uid),{shop:code});
   store.set('code',code);S.busy=0;bt.disabled=false;
   alert('Boutique créée !\n\nEssai gratuit : 7 jours.');
   start(u)
@@ -117,8 +119,8 @@ $('#sf').onsubmit=async e=>{e.preventDefault();const er=$('#serr'),bt=$('#sb');e
    :k=='auth/weak-password'?'Mot de passe trop faible'
    :k=='auth/invalid-email'?'Adresse e-mail incorrecte'
    :k=='auth/network-request-failed'||!navigator.onLine?'Pas de connexion internet'
-   :k=='permission-denied'?'Création refusée. Vérifiez la date et l’heure de votre téléphone (mode automatique), puis réessayez.'
-   :'Création impossible ('+k+')'}};
+   :k=='permission-denied'?'Création refusée à l’étape « '+step+' ». Vérifiez les règles Firestore.'
+   :'Création impossible ('+k+', étape '+step+')'}};
 onAuthStateChanged(auth,u=>{if(u){if(S.busy)return;return start(u)}
  S.u.forEach(f=>f());S.u=[];S.role=null;S.products=[];S.sales=[];S.exp=[];S.debts=[];S.team=[];S.bs=[];S.be=[];S.cart=[];S.bk=null;show('login')});
 async function start(u){
