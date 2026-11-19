@@ -16,14 +16,18 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if admin() || (signedIn() && request.auth.uid == uid);
       allow write: if admin();
-      allow create, update: if signedIn()
+      allow create: if signedIn()
         && request.resource.data.keys().hasOnly(['shop'])
         && request.resource.data.shop is string
         && (request.auth.uid == uid || hasRole(request.resource.data.shop, ['patron']));
+      allow update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['shop'])
+        && request.resource.data.shop is string;
     }
 
     match /shops/{shop} {
-      allow read: if admin() || isMember(shop);
+      allow read: if admin() || isMember(shop)
+        || (signedIn() && resource.data.ownerUid == request.auth.uid);
       allow write: if admin();
 
       allow create: if signedIn()
@@ -32,14 +36,20 @@ service cloud.firestore {
         && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.plan == 'complet'
         && request.resource.data.blocked == false
-        && request.resource.data.trial == true
         && request.resource.data.type in ['boutique','boulangerie','pharmacie','quincaillerie','restaurant']
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
         && request.resource.data.name.size() <= 60
         && request.resource.data.ownerEmail is string
         && request.resource.data.accessUntil is timestamp
-        && request.resource.data.accessUntil <= request.time + duration.value(10, 'd')
+        && (
+          (request.resource.data.trial == true
+            && !exists(/databases/$(database)/documents/users/$(request.auth.uid))
+            && request.resource.data.accessUntil <= request.time + duration.value(8, 'd'))
+          ||
+          (request.resource.data.trial == false
+            && request.resource.data.accessUntil <= request.time)
+        )
         && shop.matches('[a-z0-9-]{3,30}');
 
       match /members/{uid} {
@@ -92,7 +102,8 @@ service cloud.firestore {
           hasRole(shop, ['patron']) ||
           (hasRole(shop, ['vendeur'])
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paid'])
-            && request.resource.data.paid >= resource.data.paid)
+            && request.resource.data.paid >= resource.data.paid
+            && request.resource.data.paid <= resource.data.amount)
         );
         allow delete: if hasRole(shop, ['patron']) && active(shop);
       }
