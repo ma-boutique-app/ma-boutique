@@ -75,7 +75,7 @@ fold=s=>String(s??'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,
 c=n=>collection(db,'shops',S.shop,n),
 store={get:k=>{try{return localStorage.getItem(k)}catch(e){}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}},
 norm=s=>{s=String(s||'').trim();const m=s.match(/\(([^)]+)\)\s*$/);return (m?m[1]:s).trim().toLowerCase()},
-S={tab:'',month:today().slice(0,7),products:[],sales:[],exp:[],debts:[],team:[],bs:[],be:[],cart:[],u:[],pay:'Espèces',type:'boutique',q:'',msg:'',bt:0};
+S={tab:'',month:today().slice(0,7),products:[],sales:[],exp:[],debts:[],team:[],bs:[],be:[],cart:[],u:[],mine:[],pay:'Espèces',type:'boutique',q:'',msg:'',bt:0};
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 addEventListener('online',()=>draw());addEventListener('offline',()=>draw());
 function toast(t){const e=$('#toast');e.textContent=t;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',2600)}
@@ -133,7 +133,7 @@ async function start(u){
    const us=await getDoc(doc(db,'users',u.uid)).catch(x=>{if(x?.code=='permission-denied')return null;throw x});
    if(!(us?.exists()&&await tryCode(us.data().shop)))throw 0}
   store.set('code',code);
-  S.shop=code;S.role=m.data().role;S.info=sh.data();
+  S.shop=code;S.role=m.data().role;S.info=sh.data();S.products=[];S.sales=[];S.exp=[];S.debts=[];S.team=[];S.bs=[];S.be=[];S.cart=[];S.bk=null;S.q='';S.mine=[];if(S.role=='patron')getDocs(query(collection(db,'shops'),where('ownerUid','==',u.uid))).then(s=>{S.mine=s.docs.map(d=>({id:d.id,...d.data()}));draw()}).catch(()=>{});
   if(!TABS[S.role])throw 0;
   setDoc(doc(db,'users',u.uid),{shop:code}).catch(()=>{});
   S.type=T[S.info.type]?S.info.type:(T[store.get('type_'+code)]?store.get('type_'+code):'boutique');
@@ -143,7 +143,7 @@ async function start(u){
   else{$('#err').textContent='Pas de connexion : connectez-vous une première fois avec internet';show('login')}}}
 function listen(){S.u.forEach(f=>f());S.u=[];const r=S.role,
  L=(q,k)=>S.u.push(onSnapshot(q,s=>{S[k]=s.docs.map(d=>({id:d.id,...d.data()}));draw()},()=>toast('Lecture refusée')));
- S.day=today();
+ S.day=today();S.u.push(onSnapshot(doc(db,'shops',S.shop),s=>{if(s.exists()){S.info=s.data();S.rw=!S.info.blocked&&S.info.accessUntil?.toMillis()>Date.now();draw()}}));
  if(r!='comptable'){L(query(c('sales'),where('day','==',S.day)),'sales');L(c('products'),'products');L(c('debts'),'debts')}
  if(r=='patron'){L(query(c('expenses'),where('month','==',S.day.slice(0,7))),'exp');L(c('members'),'team')}
  draw()}
@@ -153,7 +153,7 @@ async function loadBilan(force){if(S.role!='patron'&&S.role!='comptable')return;
  try{const q=n=>getDocs(query(c(n),where('month','==',S.month))),[a,b]=await Promise.all([q('sales'),q('expenses')]);
   S.bs=a.docs.map(d=>({id:d.id,...d.data()}));S.be=b.docs.map(d=>({id:d.id,...d.data()}))}catch(e){toast('Lecture impossible');S.bk=null}
  S.bl=0;draw()}
-const TABS={patron:[['vendre','Vendre'],['produits','Produits'],['achats','Achats'],['depenses','Dépenses'],['dettes','Dettes'],['equipe','Équipe'],['bilan','Bilan']],vendeur:[['vendre','Vendre'],['produits','Stock'],['dettes','Dettes']],comptable:[['bilan','Bilan']]};
+const TABS={patron:[['vendre','Vendre'],['produits','Produits'],['achats','Achats'],['depenses','Dépenses'],['dettes','Dettes'],['equipe','Équipe'],['bilan','Bilan'],['boutiques','Boutiques']],vendeur:[['vendre','Vendre'],['produits','Stock'],['dettes','Dettes']],comptable:[['bilan','Bilan']]};
 function draw(){if(!S.role)return;if(document.activeElement?.matches('#main input,#main select'))return;
  const ms=S.info.accessUntil?.toMillis()||0,exp=new Date(ms).toLocaleDateString('fr-FR'),expH=new Date(ms).toLocaleString('fr-FR',{dateStyle:'short',timeStyle:'short'}),left=Math.ceil((ms-Date.now())/864e5);
  $('#bar').innerHTML=`<b>${esc(S.info.name||'Ma Boutique')}</b><small>${esc(S.role)}${S.role=='patron'?' · code : '+esc(S.shop):''}</small>${navigator.onLine?'':'<small class="neg">Hors ligne</small>'}<button data-a="out">Sortir</button>`;
@@ -180,6 +180,7 @@ achats:()=>{const fo=S.debts.filter(d=>d.kind=='supplier');return `<div class="c
 depenses:()=>`<div class="card"><input id="el" placeholder="Libellé (ex : salaire de Fanta)"><input id="ea" type="number" inputmode="numeric" placeholder="Montant (GNF)"><select id="ec">${[...(T[S.type].e||E),CAT0,'Autre'].map(x=>`<option>${x}</option>`).join('')}</select><button class="main" data-a="adde">Enregistrer</button></div><h4>Total du mois : ${F(sum(S.exp,'amount'))}</h4>`
  +S.exp.sort((a,b)=>b.day>a.day?1:-1).map(e=>`<div class="row"><div><b>${esc(e.label)}</b><br><small>${esc(e.cat)} · ${esc(e.day)}</small></div><div>${F(e.amount)} <button class="x" data-a="dele" data-id="${esc(e.id)}">✕</button></div></div>`).join(''),
 dettes:()=>{const cl=S.debts.filter(d=>d.kind!='supplier');return `<div class="card"><input id="dn" placeholder="Nom du client"><input id="da" type="number" inputmode="numeric" placeholder="Montant dû (GNF)"><button class="main" data-a="addd">Ajouter la dette</button></div><h4>Total à recevoir : ${F(cl.reduce((t,d)=>t+d.amount-d.paid,0))}</h4>`+cl.map(rowD).join('')},
+boutiques:()=>`<div class="card"><b>Ajouter une boutique</b><p class="m">Chaque boutique s’active après paiement.</p><input id="bn" placeholder="Nom de la nouvelle boutique" maxlength="60"><select id="bt2">${Object.entries(T).map(([k,t])=>`<option value="${k}">${t.n}</option>`).join('')}</select><button class="main" data-a="addshop">Créer la boutique</button></div><h4>Mes boutiques</h4>`+S.mine.map(s=>{const act=!s.blocked&&s.accessUntil?.toMillis()>Date.now();return `<div class="row"><div><b>${esc(s.name)}</b><br><small>${esc(s.id)} · ${act?'active jusqu’au '+new Date(s.accessUntil.toMillis()).toLocaleDateString('fr-FR'):'à payer'}</small></div>${s.id==S.shop?'<small>ouverte</small>':`<button data-a="openshop" data-id="${esc(s.id)}">Ouvrir</button>`}</div>`}).join(''),
 equipe:()=>`<div class="card"><b>Ajouter un employé</b><input id="te" type="email" placeholder="E-mail de l’employé" autocapitalize="none"><input id="tp" type="text" placeholder="Mot de passe (8 caractères minimum)" autocomplete="off"><select id="tr"><option value="vendeur">Vendeur (vend et suit le stock)</option><option value="comptable">Comptable (voit seulement le bilan)</option></select><button class="main" data-a="addteam">Créer le compte</button>${S.msg?`<p class="m">${esc(S.msg)}</p>`:''}</div><h4>Comptes de la boutique</h4>`
  +S.team.map(t=>`<div class="row"><div><b>${esc(t.email||t.id)}</b><br><small>${esc(t.role)}</small></div>${t.id==auth.currentUser?.uid?'':`<button class="x" data-a="delteam" data-id="${esc(t.id)}">Retirer</button>`}</div>`).join(''),
 bilan:()=>{const sv=sum(S.bs,'total'),cg=sum(S.bs,'cost'),ach=sum(S.be.filter(e=>e.cat==CAT0),'amount'),dp=sum(S.be,'amount')-ach,r=sv-cg-dp,days={},cats={},pays={};
@@ -243,6 +244,13 @@ addteam:async()=>{if(!ok())return;const em=v('te'),pw=$('#tp').value,role=$('#tr
   S.msg='Compte créé. À donner à l’employé : e-mail '+em+', mot de passe '+pw+'. Il se connecte sans code de boutique.';draw()
  }catch(e){toast(e.code=='auth/email-already-in-use'?'Cette adresse existe déjà':'Refusé : '+(e.code||e.message))}},
 delteam:b=>{if(ok()&&confirm('Retirer l’accès de cet employé ?'))go(deleteDoc(doc(c('members'),b.dataset.id)))},
+addshop:async()=>{const n=v('bn'),u=auth.currentUser;if(!n)return toast('Nom obligatoire');
+ const code=(n.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,20).replace(/-+$/,'')||'boutique')+'-'+Math.random().toString(36).slice(2,6).padEnd(4,'x');
+ try{await setDoc(doc(db,'shops',code),{name:n,type:$('#bt2').value,plan:'complet',blocked:false,trial:false,ownerUid:u.uid,ownerEmail:u.email,accessUntil:Timestamp.fromMillis(0)});
+  await setDoc(doc(db,'shops',code,'members',u.uid),{role:'patron',email:u.email});
+  alert('Boutique créée.\n\nPour l’activer, payez par Orange Money ou MTN MoMo au '+PAY+' en indiquant le code : '+code);
+  store.set('code',code);start(u)}catch(e){toast('Refusé : '+(e.code||e.message))}},
+openshop:b=>{store.set('code',b.dataset.id);start(auth.currentUser)},
 refb:()=>loadBilan(1),
 csv:()=>{const q=x=>typeof x=='number'?x:'"'+String(x??'').replace(/"/g,'""')+'"',rows=[['Type','Date','Libellé','Quantité','Montant (GNF)','Paiement / Catégorie']];
  S.bs.slice().sort((a,b)=>a.day>b.day?1:-1).forEach(s=>rows.push(['Vente',s.day,s.name,N(s.qty),N(s.total),s.pay||'Espèces']));
