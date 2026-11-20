@@ -26,6 +26,7 @@ service cloud.firestore {
     }
 
     match /shops/{shop} {
+allow create: if signedIn();
       allow read: if admin() || isMember(shop)
         || (signedIn() && resource.data.ownerUid == request.auth.uid);
       allow write: if admin();
