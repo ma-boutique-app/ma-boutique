@@ -1,0 +1,10 @@
+const batch = writeBatch(db);
+const shopId = slug(name) + '-' + Math.random().toString(36).slice(2, 6);
+batch.set(doc(db, 'shops', shopId), {
+  name, type, plan: 'complet', blocked: false, trial: true,
+  ownerUid: uid, ownerEmail: email,
+  accessUntil: Timestamp.fromDate(new Date(Date.now() + 7 * 864e5))
+});
+batch.set(doc(db, 'shops', shopId, 'members', uid), { role: 'patron', email });
+batch.set(doc(db, 'users', uid), { shop: shopId });
+await batch.commit();
