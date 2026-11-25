@@ -1,79 +1,135 @@
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function signedIn() { return request.auth != null; }
+    function signedIn() {
+      return request.auth != null;
+    }
+
     function admin() {
       return signedIn() && (
         request.auth.token.get('admin', false) == true
         || request.auth.uid == 'PQ15rICcjFSALPRUsWQxaVxuXFH3'
       );
     }
-    function shopDoc(s) { return /databases/$(database)/documents/shops/$(s); }
-    function memberDoc(s) { return /databases/$(database)/documents/shops/$(s)/members/$(request.auth.uid); }
-    function userDoc(u) { return /databases/$(database)/documents/users/$(u); }
-    function isMember(s) { return signedIn() && exists(memberDoc(s)); }
-    function hasRole(s, roles) { return isMember(s) && get(memberDoc(s)).data.role in roles; }
-    function active(s) {
-      let d = get(shopDoc(s)).data;
-      return d.get('blocked', false) == false && d.accessUntil > request.time;
+
+    function shopDoc(s) {
+      return /databases/$(database)/documents/shops/$(s);
     }
 
-    // --- Validations (adaptez les noms de champs à votre appli) ---
-    function validProduct(d) {
-      return d.name is string && d.name.size() > 0 && d.name.size() <= 100
-        && d.price is number && d.price >= 0
-        && d.stock is number && d.stock >= 0;
+    function memberPath(s, u) {
+      return /databases/$(database)/documents/shops/$(s)/members/$(u);
     }
+
+    function memberDoc(s) {
+      return memberPath(s, request.auth.uid);
+    }
+
+    function userDoc(u) {
+      return /databases/$(database)/documents/users/$(u);
+    }
+
+    function isMember(s) {
+      return signedIn() && exists(memberDoc(s));
+    }
+
+    function hasRole(s, roles) {
+      return isMember(s) && get(memberDoc(s)).data.role in roles;
+    }
+
+    function active(s) {
+      return exists(shopDoc(s))
+        && get(shopDoc(s)).data.get('blocked', false) == false
+        && get(shopDoc(s)).data.accessUntil is timestamp
+        && get(shopDoc(s)).data.accessUntil > request.time;
+    }
+
+    function validProduct(d) {
+      return d.name is string
+        && d.name.size() > 0
+        && d.name.size() <= 100
+        && d.price is number
+        && d.price >= 0
+        && d.stock is number
+        && d.stock >= 0;
+    }
+
     function validSale(d) {
       return d.by == request.auth.uid
-        && d.total is number && d.total >= 0;
+        && d.total is number
+        && d.total >= 0;
     }
+
     function validExpense(d) {
       return d.amount is number && d.amount > 0;
     }
+
     function validDebt(d) {
-      return d.amount is number && d.amount > 0
-        && d.paid is number && d.paid >= 0 && d.paid <= d.amount;
+      return d.amount is number
+        && d.amount > 0
+        && d.paid is number
+        && d.paid >= 0
+        && d.paid <= d.amount;
     }
 
+    // PROFILS UTILISATEURS
     match /users/{uid} {
-      allow read: if admin() || (signedIn() && request.auth.uid == uid);
-      allow write: if admin();
+      allow read: if admin()
+        || (signedIn() && request.auth.uid == uid);
 
       allow create: if signedIn()
+        && request.auth.uid == uid
         && request.resource.data.keys().hasOnly(['shop'])
         && request.resource.data.shop is string
         && (
-          // le client crée son propre profil avec sa boutique
-          (request.auth.uid == uid
-            && getAfter(shopDoc(request.resource.data.shop)).data.ownerUid == uid)
+          (
+            getAfter(shopDoc(request.resource.data.shop)).data.ownerUid == uid
+            && existsAfter(memberPath(request.resource.data.shop, uid))
+          )
           ||
-          // le patron rattache un employé qu'il vient d'ajouter
-          (hasRole(request.resource.data.shop, ['patron'])
+          (
+            existsAfter(memberPath(request.resource.data.shop, uid))
+            && hasRole(request.resource.data.shop, ['patron'])
             && active(request.resource.data.shop)
-            && existsAfter(/databases/$(database)/documents/shops/$(request.resource.data.shop)/members/$(uid)))
+          )
         );
 
-      allow update: if signedIn() && request.auth.uid == uid
+      allow update: if signedIn()
+        && request.auth.uid == uid
         && request.resource.data.keys().hasOnly(['shop'])
         && request.resource.data.shop is string
-        && isMember(request.resource.data.shop);
+        && existsAfter(memberPath(request.resource.data.shop, uid));
+
+      allow delete: if admin();
     }
 
+    // BOUTIQUES
     match /shops/{shop} {
-      allow read: if admin() || isMember(shop)
-        || (signedIn() && resource.data.ownerUid == request.auth.uid);
-      allow write: if admin();
 
-      // Inscription self-service + essai gratuit automatique
+      allow read: if admin()
+        || isMember(shop)
+        || (signedIn() && resource.data.ownerUid == request.auth.uid);
+
+      allow update, delete: if admin();
+
+      // Création d'une boutique avec son patron et son profil
       allow create: if signedIn()
-        && request.resource.data.keys().hasOnly(['name','type','plan','blocked','trial','ownerUid','ownerEmail','accessUntil'])
-        && request.resource.data.keys().hasAll(['name','type','plan','blocked','trial','ownerUid','ownerEmail','accessUntil'])
+        && request.resource.data.keys().hasOnly([
+          'name','type','plan','blocked','trial',
+          'ownerUid','ownerEmail','accessUntil'
+        ])
+        && request.resource.data.keys().hasAll([
+          'name','type','plan','blocked','trial',
+          'ownerUid','ownerEmail','accessUntil'
+        ])
         && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.plan == 'complet'
         && request.resource.data.blocked == false
-        && request.resource.data.type in ['boutique','boulangerie','pharmacie','quincaillerie','restaurant']
+        && request.resource.data.type in [
+          'boutique','boulangerie','pharmacie',
+          'quincaillerie','restaurant'
+        ]
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
         && request.resource.data.name.size() <= 60
@@ -81,87 +137,156 @@ service cloud.firestore {
         && request.resource.data.ownerEmail.size() <= 100
         && request.resource.data.accessUntil is timestamp
         && shop.matches('[a-z0-9-]{3,30}')
-        // un seul essai par compte : il ne doit pas déjà avoir de profil
         && !exists(userDoc(request.auth.uid))
         && (
-          (request.resource.data.trial == true
-            // le lot doit écrire le profil en même temps (impossible de répéter l'essai)
+          (
+            request.resource.data.trial == true
             && getAfter(userDoc(request.auth.uid)).data.shop == shop
+            && existsAfter(memberPath(shop, request.auth.uid))
             && request.resource.data.accessUntil > request.time
-            && request.resource.data.accessUntil <= request.time + duration.value(8, 'd'))
+            && request.resource.data.accessUntil
+              <= request.time + duration.value(8, 'd')
+          )
           ||
-          (request.resource.data.trial == false
-            && request.resource.data.accessUntil <= request.time)
+          (
+            request.resource.data.trial == false
+            && request.resource.data.accessUntil <= request.time
+            && getAfter(userDoc(request.auth.uid)).data.shop == shop
+            && existsAfter(memberPath(shop, request.auth.uid))
+          )
         );
 
+      // MEMBRES : PATRON, VENDEUR, COMPTABLE
       match /members/{uid} {
-        allow read: if admin() || (signedIn() && request.auth.uid == uid) || hasRole(shop, ['patron']);
-        allow write: if admin();
-        // le patron ajoute un vendeur ou un comptable
-        allow create: if hasRole(shop, ['patron']) && active(shop)
+
+        allow read: if admin()
+          || (signedIn() && request.auth.uid == uid)
+          || hasRole(shop, ['patron']);
+
+        // Le patron ajoute les employés
+        allow create: if signedIn()
+          && hasRole(shop, ['patron'])
+          && active(shop)
           && request.resource.data.keys().hasOnly(['role','email'])
           && request.resource.data.role in ['vendeur','comptable']
           && request.resource.data.email is string
           && request.resource.data.email.size() <= 100;
-        allow delete: if hasRole(shop, ['patron']) && uid != request.auth.uid;
-        // le propriétaire devient patron à la création de la boutique
+
+        // Le patron devient membre de sa propre boutique
         allow create: if signedIn()
           && request.auth.uid == uid
           && request.resource.data.keys().hasOnly(['role','email'])
           && request.resource.data.role == 'patron'
           && request.resource.data.email is string
           && getAfter(shopDoc(shop)).data.ownerUid == uid;
+
+        allow delete: if admin()
+          || (
+            hasRole(shop, ['patron'])
+            && active(shop)
+            && uid != request.auth.uid
+          );
+
+        allow update: if admin();
       }
 
+      // PRODUITS
       match /products/{id} {
-        allow read: if admin() || hasRole(shop, ['patron','vendeur']);
-        allow create: if hasRole(shop, ['patron']) && active(shop)
+        allow read: if admin()
+          || hasRole(shop, ['patron','vendeur']);
+
+        allow create: if hasRole(shop, ['patron'])
+          && active(shop)
           && validProduct(request.resource.data);
-        allow delete: if hasRole(shop, ['patron']) && active(shop);
+
+        allow delete: if hasRole(shop, ['patron'])
+          && active(shop);
+
         allow update: if active(shop) && (
-          (hasRole(shop, ['patron']) && validProduct(request.resource.data)) ||
-          (hasRole(shop, ['vendeur'])
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock'])
+          (
+            hasRole(shop, ['patron'])
+            && validProduct(request.resource.data)
+          )
+          ||
+          (
+            hasRole(shop, ['vendeur'])
+            && request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly(['stock'])
             && request.resource.data.stock is number
             && request.resource.data.stock >= 0
-            && request.resource.data.stock <= resource.data.stock)
+            && request.resource.data.stock <= resource.data.stock
+          )
         );
       }
 
+      // VENTES
       match /sales/{id} {
-        allow read: if admin() || hasRole(shop, ['patron','vendeur','comptable']);
-        allow create: if hasRole(shop, ['patron','vendeur']) && active(shop)
+        allow read: if admin()
+          || hasRole(shop, ['patron','vendeur','comptable']);
+
+        allow create: if hasRole(shop, ['patron','vendeur'])
+          && active(shop)
           && validSale(request.resource.data);
-        allow delete: if hasRole(shop, ['patron']) && active(shop);
+
+        allow delete: if hasRole(shop, ['patron'])
+          && active(shop);
+
         allow update: if false;
       }
 
+      // DÉPENSES
       match /expenses/{id} {
-        allow read: if admin() || hasRole(shop, ['patron','comptable']);
-        allow create, update: if hasRole(shop, ['patron']) && active(shop)
+        allow read: if admin()
+          || hasRole(shop, ['patron','comptable']);
+
+        allow create, update: if hasRole(shop, ['patron'])
+          && active(shop)
           && validExpense(request.resource.data);
-        allow delete: if hasRole(shop, ['patron']) && active(shop);
+
+        allow delete: if hasRole(shop, ['patron'])
+          && active(shop);
       }
 
+      // DETTES
       match /debts/{id} {
-        allow read: if admin() || hasRole(shop, ['patron','vendeur']);
-        allow create: if active(shop) && validDebt(request.resource.data) && (
-          hasRole(shop, ['patron']) ||
-          (hasRole(shop, ['vendeur']) && request.resource.data.paid == 0)
-        );
-        allow update: if active(shop) && (
-          (hasRole(shop, ['patron']) && validDebt(request.resource.data)) ||
-          (hasRole(shop, ['vendeur'])
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paid'])
-            && request.resource.data.paid >= resource.data.paid
-            && request.resource.data.paid <= resource.data.amount)
-        );
-        allow delete: if hasRole(shop, ['patron']) && active(shop);
-      }
+        allow read: if admin()
+          || hasRole(shop, ['patron','vendeur']);
 
-      match /{other=**} {
-        allow read, write: if admin();
+        allow create: if active(shop)
+          && validDebt(request.resource.data)
+          && (
+            hasRole(shop, ['patron'])
+            ||
+            (
+              hasRole(shop, ['vendeur'])
+              && request.resource.data.paid == 0
+            )
+          );
+
+        allow update: if active(shop) && (
+          (
+            hasRole(shop, ['patron'])
+            && validDebt(request.resource.data)
+          )
+          ||
+          (
+            hasRole(shop, ['vendeur'])
+            && request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly(['paid'])
+            && request.resource.data.paid is number
+            && request.resource.data.paid >= resource.data.paid
+            && request.resource.data.paid <= resource.data.amount
+          )
+        );
+
+        allow delete: if hasRole(shop, ['patron'])
+          && active(shop);
       }
+    }
+
+    // AUTRES DOCUMENTS : ADMIN UNIQUEMENT
+    match /{document=**} {
+      allow read, write: if admin();
     }
   }
 }
