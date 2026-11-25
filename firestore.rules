@@ -35,7 +35,8 @@ service cloud.firestore {
     }
 
     function hasRole(s, roles) {
-      return isMember(s) && get(memberDoc(s)).data.role in roles;
+      return isMember(s)
+        && get(memberDoc(s)).data.role in roles;
     }
 
     function active(s) {
@@ -62,7 +63,8 @@ service cloud.firestore {
     }
 
     function validExpense(d) {
-      return d.amount is number && d.amount > 0;
+      return d.amount is number
+        && d.amount > 0;
     }
 
     function validDebt(d) {
@@ -75,31 +77,29 @@ service cloud.firestore {
 
     // PROFILS UTILISATEURS
     match /users/{uid} {
+
       allow read: if admin()
         || (signedIn() && request.auth.uid == uid);
 
-      allow create: if signedIn()
-        && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['shop'])
-        && request.resource.data.shop is string
-        && (
-          (
-            getAfter(shopDoc(request.resource.data.shop)).data.ownerUid == uid
-            && existsAfter(memberPath(request.resource.data.shop, uid))
-          )
-          ||
-          (
-            existsAfter(memberPath(request.resource.data.shop, uid))
-            && hasRole(request.resource.data.shop, ['patron'])
-            && active(request.resource.data.shop)
-          )
+      // Création du profil dans le même batch que le membre
+      allow create: if admin()
+        || (
+          signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['shop'])
+          && request.resource.data.shop is string
+          && existsAfter(memberPath(request.resource.data.shop, uid))
         );
 
-      allow update: if signedIn()
-        && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['shop'])
-        && request.resource.data.shop is string
-        && existsAfter(memberPath(request.resource.data.shop, uid));
+      // Changement de boutique par un membre autorisé
+      allow update: if admin()
+        || (
+          signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['shop'])
+          && request.resource.data.shop is string
+          && existsAfter(memberPath(request.resource.data.shop, uid))
+        );
 
       allow delete: if admin();
     }
@@ -109,76 +109,99 @@ service cloud.firestore {
 
       allow read: if admin()
         || isMember(shop)
-        || (signedIn() && resource.data.ownerUid == request.auth.uid);
+        || (
+          signedIn()
+          && resource.data.ownerUid == request.auth.uid
+        );
 
       allow update, delete: if admin();
 
-      // Création d'une boutique avec son patron et son profil
-      allow create: if signedIn()
-        && request.resource.data.keys().hasOnly([
-          'name','type','plan','blocked','trial',
-          'ownerUid','ownerEmail','accessUntil'
-        ])
-        && request.resource.data.keys().hasAll([
-          'name','type','plan','blocked','trial',
-          'ownerUid','ownerEmail','accessUntil'
-        ])
-        && request.resource.data.ownerUid == request.auth.uid
-        && request.resource.data.plan == 'complet'
-        && request.resource.data.blocked == false
-        && request.resource.data.type in [
-          'boutique','boulangerie','pharmacie',
-          'quincaillerie','restaurant'
-        ]
-        && request.resource.data.name is string
-        && request.resource.data.name.size() > 0
-        && request.resource.data.name.size() <= 60
-        && request.resource.data.ownerEmail is string
-        && request.resource.data.ownerEmail.size() <= 100
-        && request.resource.data.accessUntil is timestamp
-        && shop.matches('[a-z0-9-]{3,30}')
-        && !exists(userDoc(request.auth.uid))
-        && (
-          (
-            request.resource.data.trial == true
-            && getAfter(userDoc(request.auth.uid)).data.shop == shop
-            && existsAfter(memberPath(shop, request.auth.uid))
-            && request.resource.data.accessUntil > request.time
-            && request.resource.data.accessUntil
-              <= request.time + duration.value(8, 'd')
-          )
-          ||
-          (
-            request.resource.data.trial == false
-            && request.resource.data.accessUntil <= request.time
-            && getAfter(userDoc(request.auth.uid)).data.shop == shop
-            && existsAfter(memberPath(shop, request.auth.uid))
+      // Création par l'administrateur ou inscription d'un patron
+      allow create: if admin()
+        || (
+          signedIn()
+          && shop.matches('[a-z0-9-]{3,30}')
+          && request.resource.data.keys().hasOnly([
+            'name', 'type', 'plan', 'blocked', 'trial',
+            'ownerUid', 'ownerEmail', 'accessUntil'
+          ])
+          && request.resource.data.keys().hasAll([
+            'name', 'type', 'plan', 'blocked', 'trial',
+            'ownerUid', 'ownerEmail', 'accessUntil'
+          ])
+          && request.resource.data.ownerUid == request.auth.uid
+          && request.resource.data.plan == 'complet'
+          && request.resource.data.blocked == false
+          && request.resource.data.type in [
+            'boutique',
+            'boulangerie',
+            'pharmacie',
+            'quincaillerie',
+            'restaurant'
+          ]
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0
+          && request.resource.data.name.size() <= 60
+          && request.resource.data.ownerEmail is string
+          && request.resource.data.ownerEmail.size() <= 100
+          && request.resource.data.accessUntil is timestamp
+          && existsAfter(memberPath(shop, request.auth.uid))
+          && getAfter(userDoc(request.auth.uid)).data.shop == shop
+          && (
+            // Première inscription : essai gratuit
+            (
+              !exists(userDoc(request.auth.uid))
+              && request.resource.data.trial == true
+              && request.resource.data.accessUntil > request.time
+              && request.resource.data.accessUntil
+                <= request.time + duration.value(8, 'd')
+            )
+            ||
+            // Création d'une boutique supplémentaire :
+            // le patron doit déjà avoir une boutique active
+            (
+              exists(userDoc(request.auth.uid))
+              && request.resource.data.trial == false
+              && request.resource.data.accessUntil <= request.time
+              && get(userDoc(request.auth.uid)).data.shop is string
+              && hasRole(
+                get(userDoc(request.auth.uid)).data.shop,
+                ['patron']
+              )
+              && active(get(userDoc(request.auth.uid)).data.shop)
+            )
           )
         );
 
-      // MEMBRES : PATRON, VENDEUR, COMPTABLE
+      // MEMBRES
       match /members/{uid} {
 
         allow read: if admin()
           || (signedIn() && request.auth.uid == uid)
           || hasRole(shop, ['patron']);
 
-        // Le patron ajoute les employés
-        allow create: if signedIn()
-          && hasRole(shop, ['patron'])
-          && active(shop)
-          && request.resource.data.keys().hasOnly(['role','email'])
-          && request.resource.data.role in ['vendeur','comptable']
-          && request.resource.data.email is string
-          && request.resource.data.email.size() <= 100;
+        // Le patron ajoute un vendeur ou un comptable
+        allow create: if admin()
+          || (
+            signedIn()
+            && hasRole(shop, ['patron'])
+            && active(shop)
+            && request.resource.data.keys().hasOnly(['role', 'email'])
+            && request.resource.data.role in ['vendeur', 'comptable']
+            && request.resource.data.email is string
+            && request.resource.data.email.size() <= 100
+          )
+          || (
+            // Le patron devient membre de sa propre boutique
+            signedIn()
+            && request.auth.uid == uid
+            && request.resource.data.keys().hasOnly(['role', 'email'])
+            && request.resource.data.role == 'patron'
+            && request.resource.data.email is string
+            && getAfter(shopDoc(shop)).data.ownerUid == uid
+          );
 
-        // Le patron devient membre de sa propre boutique
-        allow create: if signedIn()
-          && request.auth.uid == uid
-          && request.resource.data.keys().hasOnly(['role','email'])
-          && request.resource.data.role == 'patron'
-          && request.resource.data.email is string
-          && getAfter(shopDoc(shop)).data.ownerUid == uid;
+        allow update: if admin();
 
         allow delete: if admin()
           || (
@@ -186,14 +209,13 @@ service cloud.firestore {
             && active(shop)
             && uid != request.auth.uid
           );
-
-        allow update: if admin();
       }
 
       // PRODUITS
       match /products/{id} {
+
         allow read: if admin()
-          || hasRole(shop, ['patron','vendeur']);
+          || hasRole(shop, ['patron', 'vendeur']);
 
         allow create: if hasRole(shop, ['patron'])
           && active(shop)
@@ -221,23 +243,25 @@ service cloud.firestore {
 
       // VENTES
       match /sales/{id} {
-        allow read: if admin()
-          || hasRole(shop, ['patron','vendeur','comptable']);
 
-        allow create: if hasRole(shop, ['patron','vendeur'])
+        allow read: if admin()
+          || hasRole(shop, ['patron', 'vendeur', 'comptable']);
+
+        allow create: if hasRole(shop, ['patron', 'vendeur'])
           && active(shop)
           && validSale(request.resource.data);
 
+        allow update: if false;
+
         allow delete: if hasRole(shop, ['patron'])
           && active(shop);
-
-        allow update: if false;
       }
 
-      // DÉPENSES
+      // DEPENSES
       match /expenses/{id} {
+
         allow read: if admin()
-          || hasRole(shop, ['patron','comptable']);
+          || hasRole(shop, ['patron', 'comptable']);
 
         allow create, update: if hasRole(shop, ['patron'])
           && active(shop)
@@ -249,8 +273,9 @@ service cloud.firestore {
 
       // DETTES
       match /debts/{id} {
+
         allow read: if admin()
-          || hasRole(shop, ['patron','vendeur']);
+          || hasRole(shop, ['patron', 'vendeur']);
 
         allow create: if active(shop)
           && validDebt(request.resource.data)
